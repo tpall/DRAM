@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 - `assign_rank` rank-D check still references `dbcan_bitScore`; with that column gone, dbcan no longer contributes to rank D. Matches upstream behaviour.
 - `params.dbcan_e_value`, `params.dbcan_fam_activities`, `params.dbcan_subfam_activities` are no longer consulted (run_dbcan owns thresholds; descriptions come from its own DB). Left in `nextflow.config` / schema for back-compat.
 - DRAM-v `_A` flag (cell-entry CAZYs) verified intact: dbCAN.hmm names match `CELL_ENTRY_CAZYS` family IDs exactly after `.hmm` stripping (22/22 of the configured set found).
+- Real `run_dbcan CAZyme_annotation` output verified column-by-column against `combine_annotations.py`'s parser against a 9-protein OWC fixture: every column we read (`Target Name`, `HMM Name`, `i-Evalue` for hmm; plus `Subfam Name`, `Subfam Composition`, `Subfam EC`, `Substrate` for sub) exists in the TSV with the expected names. The nf-core module's per-fasta rename (`dbCAN_hmm_results.tsv` → `${prefix}_dbCAN_hmm_results.tsv`) lines up with the parser's glob (`*dbCAN_hmm_results.tsv`) and `_dbCAN` splitter for input_fasta tagging.
 
 ### Pre-flight requirements
 
