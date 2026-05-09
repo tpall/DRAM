@@ -148,3 +148,45 @@ def test_genes_without_any_hit_still_appear(fixture_dirs):
         "sampleA_scaffold1_1", "sampleA_scaffold1_2", "sampleA_scaffold2_1",
     }
     assert set(df["query_id"]) >= expected_queries
+
+
+def test_empty_dbcan_dir_is_a_no_op(tmp_path):
+    """When --use_dbcan is false in the pipeline, db_search.nf passes an empty
+    dbcan_output list to COMBINE_ANNOTATIONS; Nextflow then doesn't create
+    the 'dbcan/' subdirectory at all. combine_annotations.py must tolerate
+    --dbcan_dir pointing at a missing path."""
+    annotations = tmp_path / "annotations"
+    genes = tmp_path / "genes"
+    dbcan_missing = tmp_path / "dbcan"  # intentionally not created
+    output = tmp_path / "raw-annotations.tsv"
+    annotations.mkdir()
+    genes.mkdir()
+    (genes / "sampleA_called_genes.faa").write_text(GENES_FAA)
+    (annotations / "sampleA___kofam_formatted.csv").write_text(KOFAM_CSV)
+
+    _run_combine(annotations, genes, dbcan_missing, output)
+    df = pd.read_csv(output, sep="\t")
+
+    assert "dbcan_id" not in df.columns, \
+        "no dbcan columns should appear when dbcan_dir is empty/missing"
+    assert "kofam_id" in df.columns, "kofam annotations should still land"
+
+
+def test_empty_dbcan_dir_existing_but_empty(tmp_path):
+    """Same intent as above, but the directory exists (empty). Tests the
+    glob-zero-results branch independently from the missing-path branch."""
+    annotations = tmp_path / "annotations"
+    genes = tmp_path / "genes"
+    dbcan_empty = tmp_path / "dbcan"
+    output = tmp_path / "raw-annotations.tsv"
+    annotations.mkdir()
+    genes.mkdir()
+    dbcan_empty.mkdir()
+    (genes / "sampleA_called_genes.faa").write_text(GENES_FAA)
+    (annotations / "sampleA___kofam_formatted.csv").write_text(KOFAM_CSV)
+
+    _run_combine(annotations, genes, dbcan_empty, output)
+    df = pd.read_csv(output, sep="\t")
+
+    assert "dbcan_id" not in df.columns
+    assert "dbcan_sub_id" not in df.columns
