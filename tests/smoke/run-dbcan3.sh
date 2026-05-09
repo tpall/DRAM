@@ -104,6 +104,21 @@ else
     done
 fi
 
+if [[ -d "${RUNDBCAN_DIR}" ]]; then
+    # Capture the actual run_dbcan column shapes — dbCAN-sub HMM names
+    # embed pipe-delimited family/EC annotations in their HMM NAME field
+    # (e.g. PL25_e0.hmm|PL25:38|PL0:1) and we want to know whether
+    # run_dbcan strips this before reporting "Subfam Name".
+    echo "    dbCAN_hmm_results — sample HMM Name values (first 5):"
+    find "${RUNDBCAN_DIR}" -name "*_dbCAN_hmm_results.tsv" \
+        -exec awk -F'\t' 'NR>1{print $2}' {} + 2>/dev/null \
+        | sort -u | head -5 | sed 's/^/      /'
+    echo "    dbCANsub_hmm_results — sample Subfam Name values (first 5):"
+    find "${RUNDBCAN_DIR}" -name "*_dbCANsub_hmm_results.tsv" \
+        -exec awk -F'\t' 'NR>1{print $2}' {} + 2>/dev/null \
+        | sort -u | head -5 | sed 's/^/      /'
+fi
+
 if [[ -f "${RAW}" ]]; then
     HEADER="$(head -1 "${RAW}")"
     DBCAN_COLS="$(echo "${HEADER}" | tr '\t' '\n' | grep -c '^dbcan_' || true)"
