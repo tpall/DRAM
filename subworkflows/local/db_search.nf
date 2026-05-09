@@ -28,10 +28,8 @@ include { ADD_SQL_DESCRIPTIONS as SQL_VIRAL             } from "../../modules/lo
 include { ADD_SQL_DESCRIPTIONS as SQL_MEROPS            } from "../../modules/local/annotate/add_sql_descriptions.nf"
 include { ADD_SQL_DESCRIPTIONS as SQL_KEGG              } from "../../modules/local/annotate/add_sql_descriptions.nf"
 include { ADD_SQL_DESCRIPTIONS as SQL_PFAM              } from "../../modules/local/annotate/add_sql_descriptions.nf"
-include { ADD_SQL_DESCRIPTIONS as SQL_DBCAN             } from "../../modules/local/annotate/add_sql_descriptions.nf"
 
 include { HMM_SEARCH as HMM_SEARCH_KOFAM                } from "../../modules/local/annotate/hmmsearch.nf"
-include { HMM_SEARCH as HMM_SEARCH_DBCAN                } from "../../modules/local/annotate/hmmsearch.nf"
 include { HMM_SEARCH as HMM_SEARCH_VOG                  } from "../../modules/local/annotate/hmmsearch.nf"
 include { HMM_SEARCH as HMM_SEARCH_CAMPER               } from "../../modules/local/annotate/hmmsearch.nf"
 include { HMM_SEARCH as HMM_SEARCH_CANTHYD              } from "../../modules/local/annotate/hmmsearch.nf"
@@ -41,6 +39,10 @@ include { HMM_SEARCH as HMM_SEARCH_METALS               } from "../../modules/lo
 
 include { CONCAT_HMM_HITS as CONCAT_HMM_HITS_KOFAM      } from "../../modules/local/annotate/concat_hmm_hits.nf"
 include { CONCAT_HMM_HITS as CONCAT_HMM_HITS_VOG        } from "../../modules/local/annotate/concat_hmm_hits.nf"
+
+include { RUNDBCAN_EASYSUBSTRATE                        } from "../../modules/nf-core/rundbcan/easysubstrate/main.nf"
+
+include { checkDBVersion                                } from "../../subworkflows/local/utils_pipeline_setup.nf"
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -52,6 +54,8 @@ workflow DB_SEARCH {
     take:
     ch_gene_locs  // channel: path(gene_locs_tsv) ]
     ch_called_proteins  // channel: [ val(input_fasta name), path(called_proteins_file.faa) ]
+    ch_faa_map  // channel: [ [id: input_fasta], path(faa) ] — meta-tagged for nf-core modules
+    ch_gff_map  // channel: [ [id: input_fasta], path(gff), val("prodigal") ] — for run_dbcan
     default_sheet // Path to dummy sheet
     n_fastas // Number of FASTA files to process
     call     // boolean: whether gene calling flag is set
@@ -90,8 +94,6 @@ workflow DB_SEARCH {
 
     ch_sql_descriptions_db = file(params.sql_descriptions_db)
     ch_kofam_list = file(params.kofam_list)
-    ch_dbcan_fam = file(params.dbcan_fam_activities)
-    ch_dbcan_subfam = file(params.dbcan_subfam_activities)
     ch_vog_list = file(params.vog_list)
     ch_camper_hmm_list = file(params.camper_hmm_list)
     ch_canthyd_hmm_list = file(params.cant_hyd_hmm_list)
@@ -118,13 +120,22 @@ workflow DB_SEARCH {
             .fromPath(file(params.input_genes) / params.genes_fmt, checkIfExists: true)
             .ifEmpty { exit 1, "If you specify --annotate without --call, you must provide a fasta file of called genes using --input_genes. Cannot find any called gene fasta files matching: ${params.input_genes}\nNB: Path needs to follow pattern: path/to/directory/" }
             .map { it -> [ it.getBaseName(), it ] }
-            
+
         GENE_LOCS( ch_called_proteins)
         ch_gene_locs = GENE_LOCS.out.prodigal_locs_tsv
         n_fastas = file("$params.input_genes/${params.genes_fmt}").size()
+
+        // The faa map built in ANNOTATE used the empty placeholder ch_called_proteins,
+        // so rebuild it from the freshly-derived channel. ch_gff_map stays empty —
+        // run_dbcan needs a GFF, which we don't have without --call.
+        ch_faa_map = ch_called_proteins.map { file_name, file -> tuple([id: file_name], file) }
+        if (use_dbcan) {
+            error("--annotate with --use_dbcan requires --call so a Prodigal GFF is available for run_dbcan easy_substrate. Re-run with --call, or omit dbcan from --anno_dbs.")
+        }
     }
 
     def formattedOutputchannels = channel.of()
+    def dbcanOutputChannels = channel.of()
 
     // Here we will create mmseqs2 index files for each of the inputs if we are going to do a mmseqs2 database
     if (DB_channel_SETUP.out.index_mmseqs) {
@@ -197,21 +208,18 @@ workflow DB_SEARCH {
 
         formattedOutputchannels = formattedOutputchannels.mix(ch_pfam_formatted)
     }
-    // dbCAN annotation
-    if  (use_dbcan) {
-        ch_combined_proteins_locs = ch_called_proteins.join(ch_gene_locs)
-        HMM_SEARCH_DBCAN ( 
-            ch_combined_proteins_locs, 
-            params.dbcan_e_value,
-            DB_channel_SETUP.out.ch_dbcan_db,
-            default_sheet,
-            false,
-            dbcan_name
-            )
-        ch_dbcan_unformatted = HMM_SEARCH_DBCAN.out.formatted_hits
-        SQL_DBCAN(ch_dbcan_unformatted, dbcan_name, ch_sql_descriptions_db)
-        ch_dbcan_formatted = SQL_DBCAN.out.sql_formatted_hits
-        formattedOutputchannels = formattedOutputchannels.mix(ch_dbcan_formatted)
+    // dbCAN annotation — run_dbcan v3 easy_substrate (replaces HMM_SEARCH_DBCAN+SQL_DBCAN).
+    // run_dbcan owns its own thresholds; params.dbcan_e_value is no longer consulted.
+    // The hmm/sub_hmm result TSVs are routed via dbcanOutputChannels and parsed
+    // directly by combine_annotations.py rather than going through SQL descriptions.
+    if (use_dbcan) {
+        RUNDBCAN_EASYSUBSTRATE(
+            ch_faa_map,
+            ch_gff_map,
+            DB_channel_SETUP.out.ch_dbcan_db
+        )
+        dbcanOutputChannels = dbcanOutputChannels.mix(RUNDBCAN_EASYSUBSTRATE.out.dbcanhmm_results)
+        dbcanOutputChannels = dbcanOutputChannels.mix(RUNDBCAN_EASYSUBSTRATE.out.dbcansub_results)
     }
     // CAMPER annotation
     if (use_camper) {
@@ -385,8 +393,9 @@ workflow DB_SEARCH {
     }
     fastas = formattedOutputchannels.map { it -> it[1] }.collect()
     genes = ch_called_proteins.map { it -> it[1] }.collect()
-    
-    COMBINE_ANNOTATIONS( fastas, genes )
+    dbcan_output = dbcanOutputChannels.map { it -> it[1] }.toList()
+
+    COMBINE_ANNOTATIONS( fastas, genes, dbcan_output )
     ch_combined_annotations = COMBINE_ANNOTATIONS.out.combined_annotations_out
 
 
@@ -446,6 +455,7 @@ workflow DB_channel_SETUP {
 
     if (use_dbcan) {
         ch_dbcan_db = file(params.dbcan_db).exists() ? file(params.dbcan_db) : error("Error: If using --annotate, you must supply prebuilt databases. DBCAN database file not found at ${params.dbcan_db}")
+        checkDBVersion(file(params.dbcan_version_file), params.dbcan_version, "dbcan")
     }
 
     if (use_camper) {

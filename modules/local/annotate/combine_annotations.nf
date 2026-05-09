@@ -7,6 +7,7 @@ process COMBINE_ANNOTATIONS {
     input:
     path(fastas, stageAs: "annotations/*" )
     path(genes, stageAs: "genes/*" )
+    path(dbcan_output, stageAs: "dbcan/*" )
 
     output:
     path "raw-annotations.tsv", emit: combined_annotations_out
@@ -19,6 +20,7 @@ process COMBINE_ANNOTATIONS {
     combine_annotations.py \\
         --annotations_dir annotations \\
         --genes_dir genes \\
+        --dbcan_dir dbcan \\
         --threads "${params.threads}" \\
         --output raw-annotations.tsv
 
