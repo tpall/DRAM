@@ -11,6 +11,13 @@
                         "installed_by": [
                             "modules"
                         ]
+                    },
+                    "rundbcan/easysubstrate": {
+                        "branch": "master",
+                        "git_sha": "31d9ec502b58f4fcf026de727ad23e725473c70f",
+                        "installed_by": [
+                            "modules"
+                        ]
                     }
                 }
             },
