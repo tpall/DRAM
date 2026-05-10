@@ -391,8 +391,12 @@ workflow DB_SEARCH {
 
         formattedOutputchannels = formattedOutputchannels.mix(ch_viral_formatted)
     }
-    fastas = formattedOutputchannels.map { it -> it[1] }.collect()
-    genes = ch_called_proteins.map { it -> it[1] }.collect()
+    // Use .toList() rather than .collect() so COMBINE_ANNOTATIONS still fires
+    // when a channel is empty (e.g. --use_dbcan without any other DB leaves
+    // formattedOutputchannels empty; .collect() would never emit and the
+    // process would block forever).
+    fastas = formattedOutputchannels.map { it -> it[1] }.toList()
+    genes = ch_called_proteins.map { it -> it[1] }.toList()
     dbcan_output = dbcanOutputChannels.map { it -> it[1] }.toList()
 
     COMBINE_ANNOTATIONS( fastas, genes, dbcan_output )

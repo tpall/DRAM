@@ -146,7 +146,14 @@ def combine_annotations(annotations_dir, genes_dir, dbcan_dir, output, threads):
         futures = [executor.submit(read_and_preprocess, Path(path)) for path in annotations]
         data_frames = [future.result() for future in as_completed(futures)]
 
-    combined_data = pd.concat([df for df in data_frames if not df.empty], ignore_index=True)
+    non_empty = [df for df in data_frames if not df.empty]
+    if non_empty:
+        combined_data = pd.concat(non_empty, ignore_index=True)
+    else:
+        # --use_dbcan-only runs leave the formatted-annotations channel empty;
+        # skip the concat and start with an empty frame that the gene/dbcan
+        # merges below can grow into.
+        combined_data = pd.DataFrame(columns=["query_id", FASTA_COLUMN])
     if genes_faa:
         genes_faa_dict = dict()
         for gene_path in genes_faa:
@@ -161,17 +168,15 @@ def combine_annotations(annotations_dir, genes_dir, dbcan_dir, output, threads):
     if dbcan_dir:
         dbcan_hmm_paths = list(Path(dbcan_dir).glob("*dbCAN_hmm_results.tsv"))
         dbcan_sub_paths = list(Path(dbcan_dir).glob("*dbCANsub_hmm_results.tsv"))
-        if dbcan_hmm_paths:
-            dbcan_hmm = pd.concat(
-                [df for df in (read_dbcan_hmm(p) for p in dbcan_hmm_paths) if not df.empty],
-                ignore_index=True,
-            )
+        # When all per-fasta dbcan TSVs are header-only (zero hits) the filtered
+        # frames list is empty; skip the concat to avoid pd.concat([]).
+        dbcan_hmm_frames = [df for df in (read_dbcan_hmm(p) for p in dbcan_hmm_paths) if not df.empty]
+        dbcan_sub_frames = [df for df in (read_dbcan_sub(p) for p in dbcan_sub_paths) if not df.empty]
+        if dbcan_hmm_frames:
+            dbcan_hmm = pd.concat(dbcan_hmm_frames, ignore_index=True)
             combined_data = pd.merge(combined_data, dbcan_hmm, how="outer", on=["query_id", FASTA_COLUMN])
-        if dbcan_sub_paths:
-            dbcan_sub = pd.concat(
-                [df for df in (read_dbcan_sub(p) for p in dbcan_sub_paths) if not df.empty],
-                ignore_index=True,
-            )
+        if dbcan_sub_frames:
+            dbcan_sub = pd.concat(dbcan_sub_frames, ignore_index=True)
             combined_data = pd.merge(combined_data, dbcan_sub, how="outer", on=["query_id", FASTA_COLUMN])
 
     combined_data = convert_bit_scores_to_numeric(combined_data)
