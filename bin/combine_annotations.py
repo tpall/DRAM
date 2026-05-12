@@ -178,6 +178,16 @@ def combine_annotations(annotations_dir, genes_dir, dbcan_dir, output, threads):
         if dbcan_sub_frames:
             dbcan_sub = pd.concat(dbcan_sub_frames, ignore_index=True)
             combined_data = pd.merge(combined_data, dbcan_sub, how="outer", on=["query_id", FASTA_COLUMN])
+        # Files staged but header-only (run_dbcan ran, found no CAZymes) still
+        # need to land the full dbcan_* schema for downstream consumers. An
+        # empty/missing dbcan_dir (use_dbcan=false; no files staged) skips this
+        # so we don't fabricate columns the user didn't ask for.
+        if dbcan_hmm_paths or dbcan_sub_paths:
+            for col in ("dbcan_id", "dbcan_i_Evalue",
+                        "dbcan_sub_id", "dbcan_sub_composition",
+                        "dbcan_sub_ec", "dbcan_sub_substrate", "dbcan_sub_i_Evalue"):
+                if col not in combined_data.columns:
+                    combined_data[col] = pd.NA
 
     combined_data = convert_bit_scores_to_numeric(combined_data)
 

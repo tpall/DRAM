@@ -190,3 +190,49 @@ def test_empty_dbcan_dir_existing_but_empty(tmp_path):
 
     assert "dbcan_id" not in df.columns
     assert "dbcan_sub_id" not in df.columns
+
+
+# Header-only TSVs that mimic run_dbcan v3 output for a sample with no CAZyme
+# hits. Column layout matches what the real `run_dbcan easy_substrate` writes
+# (verified 2026-05-12 against dbcan-v3 on HPC); the parser uses pandas
+# column-name lookup, so column order is irrelevant.
+DBCAN_HMM_TSV_NO_HITS = (
+    "HMM Name\tHMM Length\tTarget Name\tTarget Length\ti-Evalue\t"
+    "HMM From\tHMM To\tTarget From\tTarget To\tCoverage\tHMM File Name\n"
+)
+DBCAN_SUB_TSV_NO_HITS = (
+    "Subfam Name\tSubfam Composition\tSubfam EC\tSubstrate\tHMM Length\t"
+    "Target Name\tTarget Length\ti-Evalue\tHMM From\tHMM To\t"
+    "Target From\tTarget To\tCoverage\tHMM File Name\n"
+)
+
+
+def test_header_only_dbcan_files_still_emit_columns(tmp_path):
+    """run_dbcan ran but found zero hits — files exist with only their header
+    row. Downstream consumers (assign_rank, raw-annotations schema) need the
+    dbcan_* columns to be present (empty/NaN) so the schema stays stable."""
+    annotations = tmp_path / "annotations"
+    genes = tmp_path / "genes"
+    dbcan = tmp_path / "dbcan"
+    output = tmp_path / "raw-annotations.tsv"
+    annotations.mkdir()
+    genes.mkdir()
+    dbcan.mkdir()
+    (genes / "sampleA_called_genes.faa").write_text(GENES_FAA)
+    (annotations / "sampleA___kofam_formatted.csv").write_text(KOFAM_CSV)
+    (dbcan / "sampleA_dbCAN_hmm_results.tsv").write_text(DBCAN_HMM_TSV_NO_HITS)
+    (dbcan / "sampleA_dbCANsub_hmm_results.tsv").write_text(DBCAN_SUB_TSV_NO_HITS)
+
+    _run_combine(annotations, genes, dbcan, output)
+    df = pd.read_csv(output, sep="\t")
+
+    expected_dbcan = {
+        "dbcan_id", "dbcan_i_Evalue",
+        "dbcan_sub_id", "dbcan_sub_composition", "dbcan_sub_ec",
+        "dbcan_sub_substrate", "dbcan_sub_i_Evalue",
+    }
+    missing = expected_dbcan - set(df.columns)
+    assert not missing, f"missing dbcan columns: {missing}"
+    # Every dbcan_* value must be empty/NaN since no hits were produced.
+    for col in expected_dbcan:
+        assert df[col].isna().all(), f"{col} should be all-NaN when no hits"
