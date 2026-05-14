@@ -42,6 +42,7 @@ process RUNDBCAN_EASYSUBSTRATE {
         --output_dir . \\
         --input_gff ${input_gff} \\
         --gff_type ${gff_type} \\
+        --threads ${task.cpus} \\
         ${args}
 
     mv overview.tsv             ${prefix}_overview.tsv
