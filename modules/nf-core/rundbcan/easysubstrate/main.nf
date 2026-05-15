@@ -34,6 +34,27 @@ process RUNDBCAN_EASYSUBSTRATE {
     def args = task.ext.args ?: ''
     prefix = task.ext.prefix ?: "${meta.id}"
     """
+    # run_dbcan 5.2.6's TCDB DIAMOND search ignores easy_substrate's --threads
+    # and lets DIAMOND grab every core on the node (256 on the HPC compute
+    # nodes), oversubscribing the ${task.cpus}-CPU allocation -> SIGBUS / multi-
+    # hour hangs / NODE_FAIL. Shadow `diamond` on PATH so every DIAMOND call
+    # run_dbcan spawns is pinned to task.cpus regardless of what it requests.
+    mkdir -p .dbcan_shim
+    export DBCAN_REAL_DIAMOND="\$(command -v diamond)"
+    cat > .dbcan_shim/diamond <<'DBCAN_SHIM'
+#!/usr/bin/env bash
+args=()
+while [ \$# -gt 0 ]; do
+    case "\$1" in
+        --threads|-p)     shift; shift ;;
+        --threads=*|-p=*) shift ;;
+        *)                args+=("\$1"); shift ;;
+    esac
+done
+exec "\$DBCAN_REAL_DIAMOND" "\${args[@]}" --threads ${task.cpus}
+DBCAN_SHIM
+    chmod +x .dbcan_shim/diamond
+    export PATH="\$PWD/.dbcan_shim:\$PATH"
 
     run_dbcan easy_substrate \\
         --mode protein \\
