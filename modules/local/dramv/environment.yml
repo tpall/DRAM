@@ -9,3 +9,4 @@ dependencies:
   - pyarrow
   - numpy
   - lark
+  - networkx
