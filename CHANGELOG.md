@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased (dramv-dbcan3)
+
+### Features
+
+- **dbcan3 via run_dbcan easy_substrate.** Replaces the dbcan2-era `HMM_SEARCH_DBCAN` + `SQL_DBCAN` path with the `RUNDBCAN_EASYSUBSTRATE` nf-core module (`run_dbcan` v3, `biocontainers/dbcan:5.2.6`). Mirrors upstream PR #500.
+  - New module `modules/nf-core/rundbcan/easysubstrate/`.
+  - New helper `checkDBVersion(version_file, db_version, db_name)` in `subworkflows/local/utils_pipeline_setup.nf`. Gates the dbcan path on a known DB build via the new `params.dbcan_version` (default `"5-2_9-13-2025"`) and `params.dbcan_version_file` (default `${params.dbcan_db}/version.txt`) — both hidden in `nextflow_schema.json`.
+  - `subworkflows/local/call.nf` now also emits `ch_gene_gff` so downstream subworkflows can consume the per-fasta Prodigal GFF needed by `run_dbcan`.
+  - `subworkflows/local/annotate.nf` builds `ch_faa_map` and `ch_gff_map` (nf-core meta-tagged) from CALL outputs and passes them into `DB_SEARCH`.
+  - `subworkflows/local/db_search.nf` dbCAN block now calls `RUNDBCAN_EASYSUBSTRATE(faa, gff, dbcan_db)`; mixes its `dbcanhmm_results` + `dbcansub_results` outputs into a new `dbcanOutputChannels` and passes them as a 3rd arg to `COMBINE_ANNOTATIONS`. The `--annotate --use_dbcan` combination without `--call` now errors out (run_dbcan needs a Prodigal GFF).
+  - `modules/local/annotate/combine_annotations.nf` accepts a new `dbcan_output` input staged at `dbcan/*` and forwards it via `--dbcan_dir`.
+  - `bin/combine_annotations.py` grows `--dbcan_dir`; reads run_dbcan's `*_dbCAN_hmm_results.tsv` (`Target Name` → `query_id`, `HMM Name` → `dbcan_id`, `i-Evalue` → `dbcan_i_Evalue`; `.hmm` suffix stripped) and `*_dbCANsub_hmm_results.tsv` (`Subfam Name` → `dbcan_sub_id`, `Subfam Composition` → `dbcan_sub_composition`, `Subfam EC` → `dbcan_sub_ec`, `Substrate` → `dbcan_sub_substrate`, `i-Evalue` → `dbcan_sub_i_Evalue`) and outer-joins them into combined_data on `(query_id, input_fasta)`. Stays on pandas; the polars rewrite from upstream is deferred.
+  - `conf/modules.config`: publishDir for `RUNDBCAN_EASYSUBSTRATE`.
+
+### Test infrastructure
+
+- `tests/unit/test_combine_annotations_dbcan.py` — five pytest tests against fabricated run_dbcan output. Cover schema, `.hmm` stripping, sub-only join independence, per-fasta tagging via the `_dbCAN` splitter, and the no-hit-gene preservation invariant. Runs without nextflow / containers / DB.
+- `tests/smoke/run-dbcan3.sh` — HPC smoke test. `--call --annotate --use_dbcan` against the OWC fixture, single DB only. Pre-flight validates DB + version file; post-run asserts the 7 new dbcan_* columns present, `dbcan_bitScore` absent, RUNDBCAN_EASYSUBSTRATE published its expected outputs, and at least one row has a non-empty `dbcan_id`. Configurable via env vars (`DBCAN_DB`, `DBCAN_VERSION`, `OUTDIR`, `PARTITION`, `ARRAY_SIZE`).
+
+### Behavioral changes
+
+- `raw-annotations.tsv` schema for dbcan: loses `dbcan_bitScore`, `dbcan_description`, `dbcan_EC`. Gains `dbcan_id`, `dbcan_i_Evalue`, `dbcan_sub_id`, `dbcan_sub_composition`, `dbcan_sub_ec`, `dbcan_sub_substrate`, `dbcan_sub_i_Evalue`.
+- `assign_rank` rank-D check still references `dbcan_bitScore`; with that column gone, dbcan no longer contributes to rank D. Matches upstream behaviour.
+- `params.dbcan_e_value`, `params.dbcan_fam_activities`, `params.dbcan_subfam_activities` are no longer consulted (run_dbcan owns thresholds; descriptions come from its own DB). Left in `nextflow.config` / schema for back-compat.
+- DRAM-v `_A` flag (cell-entry CAZYs) verified intact: dbCAN.hmm names match `CELL_ENTRY_CAZYS` family IDs exactly after `.hmm` stripping (22/22 of the configured set found).
+- Real `run_dbcan CAZyme_annotation` output verified column-by-column against `combine_annotations.py`'s parser against a 9-protein OWC fixture: every column we read (`Target Name`, `HMM Name`, `i-Evalue` for hmm; plus `Subfam Name`, `Subfam Composition`, `Subfam EC`, `Substrate` for sub) exists in the TSV with the expected names. The nf-core module's per-fasta rename (`dbCAN_hmm_results.tsv` → `${prefix}_dbCAN_hmm_results.tsv`) lines up with the parser's glob (`*dbCAN_hmm_results.tsv`) and `_dbCAN` splitter for input_fasta tagging.
+
+### Pre-flight requirements
+
+- `params.dbcan_db` must point at a `run_dbcan`-compatible v3 DB layout (download via `run_dbcan database --aws_s3 --db_dir <dir>` inside the dbcan container).
+- A one-line `version.txt` in that directory matching `params.dbcan_version` (default `"5-2_9-13-2025"`).
+- `biocontainers/dbcan:5.2.6--pyhdfd78af_0` reachable.
+
 ## Unreleased (feature/dramv-phase1)
 
 ### Features

@@ -58,6 +58,7 @@ workflow ANNOTATE {
     ch_quast_stats = default_sheet
     ch_gene_locs = default_sheet
     ch_called_proteins = default_sheet
+    ch_gene_gff = Channel.empty()
     ch_collected_fna = default_sheet
 
     if (call){
@@ -65,17 +66,31 @@ workflow ANNOTATE {
         ch_quast_stats = CALL.out.ch_quast_stats
         ch_gene_locs = CALL.out.ch_gene_locs
         ch_called_proteins = CALL.out.ch_called_proteins
+        ch_gene_gff = CALL.out.ch_gene_gff
         ch_collected_fna = CALL.out.ch_collected_fna
 
     }
 
- 
+    // run_dbcan easy_substrate consumes per-fasta protein FAA + GFF tagged
+    // with an nf-core meta map. Build them here so DB_SEARCH can stay agnostic
+    // about how upstream channels were constructed.
+    ch_faa_map = ch_called_proteins
+        .map { file_name, file ->
+            tuple([id: file_name], file)
+        }
+    ch_gff_map = ch_gene_gff
+        .map { file ->
+            tuple([id: file.getBaseName()], file, "prodigal")
+        }
+
     if (params.annotate){
-        DB_SEARCH( 
-            ch_gene_locs, 
-            ch_called_proteins, 
-            default_sheet, 
-            n_fastas, 
+        DB_SEARCH(
+            ch_gene_locs,
+            ch_called_proteins,
+            ch_faa_map,
+            ch_gff_map,
+            default_sheet,
+            n_fastas,
             call,
             use_kegg,
             use_kofam,

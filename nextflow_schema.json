@@ -425,6 +425,16 @@
                     "default": "${launchDir}/databases/dbcan/dbcan.fam-activities.tsv",
                     "hidden": true
                 },
+                "dbcan_version": {
+                    "type": "string",
+                    "description": "Expected dbcan DB version string (compared against dbcan_version_file).",
+                    "hidden": true
+                },
+                "dbcan_version_file": {
+                    "type": "string",
+                    "description": "Path to a one-line version file inside the dbcan DB directory.",
+                    "hidden": true
+                },
                 "vog_db": {
                     "type": "string",
                     "default": "${launchDir}/databases/vog/",

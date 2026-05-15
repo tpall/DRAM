@@ -10,3 +10,4 @@ dependencies:
   - xlsxwriter
   - numpy
   - lark
+  - networkx

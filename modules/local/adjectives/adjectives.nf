@@ -4,7 +4,7 @@ process ADJECTIVES {
     errorStrategy 'finish'
 
     conda "${moduleDir}/environment.yml"
-    container "community.wave.seqera.io/library/python_click_polars_pyarrow_pruned:00822989eabb8b47"
+    container "community.wave.seqera.io/library/click_lark_networkx_numpy_pruned:4f796d4dd0e33580"
 
     input:
     path( ch_combined_annotations, stageAs: "raw-annotations.tsv" )
