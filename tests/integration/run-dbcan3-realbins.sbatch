@@ -15,7 +15,7 @@
 # dramv-dbcan3 clone (no `tpall/DRAM -r dev` indirection), adds --call (now
 # required by the run_dbcan path), and points --dbcan_db at the v3 install.
 #
-# Submit from the repo root on the dramv-dbcan3 branch:
+# Submit from the repo root on the dev branch:
 #
 #   mkdir -p logs
 #   sbatch tests/integration/run-dbcan3-realbins.sbatch
@@ -26,6 +26,7 @@
 #   OUTDIR        nextflow output dir (default: parallel to existing results)
 #   DBCAN_DB      run_dbcan v3 DB dir
 #   ARRAY_SIZE    --array_size (default 20; HPC fair-share needs > 0)
+#   RESUME        1/true/yes/on to pass -resume (reuse cached tasks; default off)
 
 set -euo pipefail
 
@@ -36,6 +37,14 @@ set -euo pipefail
 : "${DBCAN_VERSION:=5-2_9-13-2025}"
 : "${ARRAY_SIZE:=20}"
 : "${PARTITION:=main}"
+: "${RESUME:=}"
+
+# Translate the RESUME env toggle into nextflow's -resume flag. Default off, so
+# the integration test runs clean unless a resume is explicitly requested.
+RESUME_ARG=""
+case "${RESUME,,}" in
+    1|true|yes|on) RESUME_ARG="-resume" ;;
+esac
 
 module purge
 module load singularity/3.8.5
@@ -52,6 +61,7 @@ echo "    head:        $(git rev-parse --short HEAD)"
 echo "    INPUT_FASTA: ${INPUT_FASTA}"
 echo "    OUTDIR:      ${OUTDIR}"
 echo "    DBCAN_DB:    ${DBCAN_DB}"
+echo "    resume:      ${RESUME_ARG:-(off)}"
 
 if [[ ! -d "${INPUT_FASTA}" ]]; then
     echo "ERROR: INPUT_FASTA does not exist: ${INPUT_FASTA}" >&2
@@ -70,6 +80,7 @@ mkdir -p "${OUTDIR}"
 
 nextflow run . \
     -profile singularity \
+    ${RESUME_ARG} \
     --slurm --partition "${PARTITION}" \
     --input_fasta "${INPUT_FASTA}" \
     --outdir "${OUTDIR}" \
