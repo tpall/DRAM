@@ -57,5 +57,11 @@ nextflow-local.config
 # scratch folder
 scratch/
 
+# scratch logs
+*.log
+
+# local Claude Code config
+.claude/
+
 # local-only reference material (papers, notes)
 misc/
