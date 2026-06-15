@@ -27,10 +27,14 @@
 #   dbcan_version      = "5-2_9-13-2025"
 set -euo pipefail
 : "${COHORT:?set COHORT=<cohort>}"
+: "${RESUME:=}"   # set RESUME=1 to reuse cached tasks (e.g. after a transient node failure)
 
 ROOT=/gpfs/helios/home/taavi74/Projects
 INPUT_FASTA="$ROOT/$COHORT/results/binrefine/final_bins"   # native .fa.gz; pipeline decompresses
 OUTDIR="$ROOT/$COHORT/results/DRAM/call-annotate-distill"
+
+RESUME_ARG=""
+case "${RESUME,,}" in 1|true|yes|on) RESUME_ARG="-resume" ;; esac
 
 module purge
 module load singularity/3.8.5
@@ -44,6 +48,7 @@ echo "==> $COHORT  in=$INPUT_FASTA  out=$OUTDIR  job=${SLURM_JOB_ID:-?}"
 
 nextflow run tpall/DRAM -r eluring-prod-dev \
   -c ~/dram_dbs.config \
+  ${RESUME_ARG} \
   -profile singularity --slurm --partition main \
   --input_fasta "$INPUT_FASTA" --outdir "$OUTDIR" \
   --threads 8 --call --annotate --summarize --qc \
