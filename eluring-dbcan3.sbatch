@@ -32,6 +32,12 @@ set -euo pipefail
 ROOT=/gpfs/helios/home/taavi74/Projects
 INPUT_FASTA="$ROOT/$COHORT/results/binrefine/final_bins"   # native .fa.gz; pipeline decompresses
 OUTDIR="$ROOT/$COHORT/results/DRAM/call-annotate-distill"
+# Per-cohort Nextflow launch dir. Cohorts run concurrently; if they share one
+# launchDir, nf-core dumpParametersToJSON races on a second-resolution temp file
+# (.params_<ts>.json) -- one run copies+deletes it, another's copy then fails
+# with "No such file or directory". A unique launchDir also isolates each
+# cohort's work/ and .nextflow/ history, making RESUME unambiguous.
+RUNDIR="$ROOT/$COHORT/results/DRAM/nf-run"
 
 RESUME_ARG=""
 case "${RESUME,,}" in 1|true|yes|on) RESUME_ARG="-resume" ;; esac
@@ -42,9 +48,10 @@ source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate java
 
 [[ -d "$INPUT_FASTA" ]] || { echo "ERROR: no bins at $INPUT_FASTA" >&2; exit 1; }
-mkdir -p "$OUTDIR" logs
+mkdir -p "$OUTDIR" "$RUNDIR" logs   # logs/ is relative to the submission dir; create before cd
+cd "$RUNDIR"                        # unique launchDir per cohort -- see RUNDIR note above
 
-echo "==> $COHORT  in=$INPUT_FASTA  out=$OUTDIR  job=${SLURM_JOB_ID:-?}"
+echo "==> $COHORT  in=$INPUT_FASTA  out=$OUTDIR  run=$RUNDIR  job=${SLURM_JOB_ID:-?}"
 
 nextflow run tpall/DRAM -r eluring-prod-dev \
   -c ~/dram_dbs.config \
