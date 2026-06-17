@@ -53,9 +53,19 @@ cd "$RUNDIR"                        # unique launchDir per cohort -- see RUNDIR 
 
 echo "==> $COHORT  in=$INPUT_FASTA  out=$OUTDIR  run=$RUNDIR  job=${SLURM_JOB_ID:-?}"
 
-nextflow run tpall/DRAM -r eluring-prod-dev \
+# Auto-resume loop: Nextflow's array-jobs + container combo can throw a
+# ConcurrentModificationException in BashWrapperBuilder -- a session-level
+# framework error with no task exit code, so errorStrategy/maxRetries can't
+# catch it and the whole run dies. Each retry forces -resume; since launchDir
+# is per-cohort (RUNDIR), the cache from the failed attempt is reused, so only
+# the unfinished DB_SEARCH submission phase re-rolls. Bounded so a genuine,
+# repeatable failure doesn't loop forever.
+resume_arg="$RESUME_ARG"
+attempt=1
+max_attempts=5
+until nextflow run tpall/DRAM -r eluring-prod-dev \
   -c ~/dram_dbs.config \
-  ${RESUME_ARG} \
+  ${resume_arg} \
   -profile singularity --slurm --partition main \
   --input_fasta "$INPUT_FASTA" --outdir "$OUTDIR" \
   --threads 8 --call --annotate --summarize --qc \
@@ -63,4 +73,13 @@ nextflow run tpall/DRAM -r eluring-prod-dev \
   --array_size 20 --queue_size 20 \
   -with-report   "$OUTDIR/report-${SLURM_JOB_ID}.html" \
   -with-trace    "$OUTDIR/trace-${SLURM_JOB_ID}.txt" \
-  -with-timeline "$OUTDIR/timeline-${SLURM_JOB_ID}.html"
+  -with-timeline "$OUTDIR/timeline-${SLURM_JOB_ID}.html"; do
+  if [ "$attempt" -ge "$max_attempts" ]; then
+    echo "ERROR: nextflow failed $max_attempts times; giving up." >&2
+    exit 1
+  fi
+  echo "WARN: nextflow exited non-zero (attempt $attempt/$max_attempts); resuming in 30s..." >&2
+  resume_arg="-resume"   # force resume on retries to reuse this run's cache
+  attempt=$((attempt + 1))
+  sleep 30
+done
