@@ -13,7 +13,7 @@ logger = get_logger(filename=Path(__file__).stem)
 # Function to count predicted genes in a GFF file
 def count_genes_in_gff(gff_file):
     with open(gff_file, 'r') as file:
-        return sum(1 for line in file if '\\tCDS\\t' in line)
+        return sum(1 for line in file if '\tCDS\t' in line)
 
 # Find all FASTA and GFF files
 gff_file_paths = glob('*.gff')
