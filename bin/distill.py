@@ -98,6 +98,10 @@ def make_genome_stats(annotations, rrna_frame=None, trna_frame=None, quast_frame
             row.append(frame['bin_contamination'][0])
         rows.append(row)
     genome_stats = pl.DataFrame(rows, schema=columns, orient='row')
+    # The join key must be the same dtype on both sides: genome names that look
+    # numeric (e.g. "1", "2") get inferred as Int by read_csv on one frame and
+    # Utf8 on the other, which makes the join match nothing. Pin it to Utf8.
+    genome_stats = genome_stats.with_columns(pl.col("genome").cast(pl.Utf8))
     if rrna_frame is not None:
         meta_cols = RRNA_COLUMNS
         sample_cols = [c for c in rrna_frame.columns if c not in meta_cols]
@@ -107,6 +111,7 @@ def make_genome_stats(annotations, rrna_frame=None, trna_frame=None, quast_frame
             .group_by("gene_id")
             .agg([pl.col(c).sum().alias(c) for c in sample_cols])
             .transpose(include_header=True, header_name="genome", column_names="gene_id")
+            .with_columns(pl.col("genome").cast(pl.Utf8))
         )
         genome_stats = genome_stats.join(df_rrna, on="genome", how="left")
     if trna_frame is not None:
@@ -121,18 +126,43 @@ def make_genome_stats(annotations, rrna_frame=None, trna_frame=None, quast_frame
             .agg([pl.col(c).sum().alias(c) for c in sample_cols])
             .select([(pl.col(c) != 0).cast(pl.Int64).sum().alias(c) for c in sample_cols])
             .transpose(include_header=True, header_name="genome", column_names=["tRNA count"])
+            .with_columns(pl.col("genome").cast(pl.Utf8))
         )
-        genome_stats = genome_stats.join(df_trna, on="genome", how="inner")
-        
+        # Left join keeps genomes with no tRNAs (absent as columns in the tRNA
+        # crosstab); their count is a true 0, not missing data, so fill nulls.
+        genome_stats = genome_stats.join(df_trna, on="genome", how="left")
+        if "tRNA count" in genome_stats.columns:
+            genome_stats = genome_stats.with_columns(
+                pl.col("tRNA count").fill_null(0)
+            )
+
     if quast_frame is not None:
         quast_frame = (
             quast_frame
             .rename({groupby_column: "genome"})
             .drop("no. contigs")
+            .with_columns(pl.col("genome").cast(pl.Utf8))
         )
 
-        genome_stats = genome_stats.join(quast_frame, on="genome", how="inner")
-        assert genome_stats.shape[0] == quast_frame.shape[0], "genomes from annotation file don't map to quast file"
+        # Left join so every annotated genome keeps its row even when quast has
+        # no stats for it; quast is supplementary and must not drop genomes.
+        # Warn (don't abort the whole distillate) when the genome sets diverge.
+        annotation_genomes = set(genome_stats["genome"].to_list())
+        quast_genomes = set(quast_frame["genome"].to_list())
+        only_in_quast = quast_genomes - annotation_genomes
+        only_in_annotations = annotation_genomes - quast_genomes
+        if only_in_quast:
+            logger.warning(
+                "genomes in quast file with no match in annotations "
+                f"(no quast stats lost, but check naming): {sorted(only_in_quast)}"
+            )
+        if only_in_annotations:
+            logger.warning(
+                "annotated genomes absent from quast file (their quast "
+                f"columns will be null): {sorted(only_in_annotations)}"
+            )
+
+        genome_stats = genome_stats.join(quast_frame, on="genome", how="left")
 
     return genome_stats
 
