@@ -2,64 +2,50 @@
 """Split a pooled mmseqs formatted-hits CSV back into per-genome CSVs.
 
 Phase-2 search-bundling (docs/dev/search-bundling.md): when `pool_searches` is set,
-all genomes' called proteins are concatenated and searched against a DB in one task.
-The resulting formatted-hits CSV therefore contains hits for every genome, identified
-by the genome-prefixed `query_id` ({genome}_{scaffold}_{gene}).
+PREFIX_GENES_FOR_POOL rewrites each genome's gene ids to `<genome>___<orig_id>` so
+they are globally unique (Prodigal ids are only unique within a genome — megahit
+k141_* scaffold names collide across bins). All genomes are then searched in one
+task, so the formatted-hits CSV contains every genome's hits, each `query_id`
+carrying its `<genome>___` prefix.
 
 Downstream (SQL descriptions + COMBINE_ANNOTATIONS) consumes ONE CSV per genome,
-attributing rows to the genome encoded in the `___`-delimited filename. So we
-partition the pooled CSV by genome and re-emit `<genome>___mmseqs_<db>_formatted.csv`,
-exactly as the per-genome search path would have produced (rows are partitioned, not
-re-formatted, so columns/values are identical; final row order is irrelevant because
-COMBINE_ANNOTATIONS sorts).
+attributing rows to the genome in the `___`-delimited filename. So we recover the
+genome from each row's prefix, strip the prefix to restore the original `query_id`,
+and re-emit `<genome>___mmseqs_<db>_formatted.csv` — identical to what the
+per-genome path produces (rows partitioned, values unchanged; final row order is
+irrelevant because COMBINE_ANNOTATIONS sorts).
 
-Genome membership is taken from the per-genome gene-locs tables
-(`<genome>_called_genes_table.tsv`), each of which lists that genome's `query_id`s —
-the same source of truth COMBINE uses, so attribution matches exactly.
-
-Usage: split_pooled_hits.py <pooled_formatted.csv> <gene_locs_dir> <db_name>
+Usage: split_pooled_hits.py <pooled_formatted.csv> <db_name>
 """
 import sys
-import os
-import glob
 import pandas as pd
 
-LOCS_SUFFIX = "_called_genes_table.tsv"
+DELIM = "___"
 
 
-def main(pooled_csv, locs_dir, db_name):
+def main(pooled_csv, db_name):
     hits = pd.read_csv(pooled_csv)
     if "query_id" not in hits.columns:
         hits = hits.rename(columns={hits.columns[0]: "query_id"})
 
-    # query_id -> genome, from each genome's gene-locs table
-    q2g = {}
-    locs_files = glob.glob(os.path.join(locs_dir, "*" + LOCS_SUFFIX))
-    if not locs_files:
-        sys.exit(f"ERROR: no *{LOCS_SUFFIX} files in {locs_dir}")
-    for f in locs_files:
-        genome = os.path.basename(f)[: -len(LOCS_SUFFIX)]
-        locs = pd.read_csv(f, sep="\t", usecols=["query_id"])
-        for q in locs["query_id"].tolist():
-            q2g[q] = genome
-
-    hits["__genome"] = hits["query_id"].map(q2g)
-    unmapped = int(hits["__genome"].isna().sum())
-    if unmapped:
-        sys.stderr.write(
-            f"WARNING: {unmapped} pooled hits had no genome in gene-locs; dropping them\n"
+    # query_id == "<genome>___<original_id>"; split on the FIRST delimiter only.
+    split = hits["query_id"].astype(str).str.split(DELIM, n=1, expand=True)
+    if split.shape[1] < 2 or split[1].isna().any():
+        sys.exit(
+            f"ERROR: {int(split[1].isna().sum()) if split.shape[1] > 1 else len(hits)} "
+            f"query_ids lack a '{DELIM}' genome prefix — was PREFIX_GENES_FOR_POOL run?"
         )
-        hits = hits.dropna(subset=["__genome"])
+    hits = hits.assign(__genome=split[0], query_id=split[1])
 
     n = 0
     for genome, sub in hits.groupby("__genome", sort=True):
         sub = sub.drop(columns="__genome")
-        sub.to_csv(f"{genome}___mmseqs_{db_name}_formatted.csv", index=False)
+        sub.to_csv(f"{genome}{DELIM}mmseqs_{db_name}_formatted.csv", index=False)
         n += 1
     sys.stderr.write(f"split pooled {db_name} hits into {n} per-genome CSVs\n")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 3:
         sys.exit(__doc__)
-    main(sys.argv[1], sys.argv[2], sys.argv[3])
+    main(sys.argv[1], sys.argv[2])

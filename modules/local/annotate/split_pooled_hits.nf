@@ -10,7 +10,6 @@ process SPLIT_POOLED_HITS {
 
     input:
     tuple val( pool_name ), path( pooled_hits_csv )
-    path( gene_locs, stageAs: "gene_locs_dir/*" )
     val( db_name )
 
     output:
@@ -18,6 +17,6 @@ process SPLIT_POOLED_HITS {
 
     script:
     """
-    split_pooled_hits.py ${pooled_hits_csv} gene_locs_dir ${db_name}
+    split_pooled_hits.py ${pooled_hits_csv} ${db_name}
     """
 }
