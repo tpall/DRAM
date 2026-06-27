@@ -201,11 +201,28 @@ workflow DB_SEARCH {
     // KOFAM annotation
     if (use_kofam) {
         if (params.pool_searches) {
-            // pooled HMM: one hmmsearch over the pooled prefixed proteins, split per genome.
-            // hmm_parser filters on per-profile bit-score thresholds (DB-size independent); the
-            // -E ${kofam_e_value} prefilter scales with pool size — validated on extraves.
-            HMM_SEARCH_KOFAM_POOLED( ch_pooled_hmm_in, params.kofam_e_value, DB_channel_SETUP.out.ch_kofam_db, ch_kofam_list, true, kofam_name )
-            SPLIT_POOLED_KOFAM( HMM_SEARCH_KOFAM_POOLED.out.formatted_hits, kofam_name )
+            // Pooled HMM. One hmmsearch over the pooled prefixed proteins is a single
+            // un-parallelised task; with search_chunk_size > 0 the pooled FASTA is split
+            // into chunks searched in parallel (restoring fan-out while keeping the task
+            // count O(#chunks), not O(#bins)), concatenated, then split per genome.
+            // hmm_parser filters on per-profile bit-score thresholds (DB-size independent);
+            // hmmsearch's -E ${kofam_e_value} prefilter scales with the searched DB size —
+            // validated on extraves.
+            if (params.search_chunk_size && params.search_chunk_size > 0) {
+                ch_kofam_pooled_in = ch_pooled_faa
+                    .splitFasta(by: params.search_chunk_size, file: true, elem: 1)
+                    .map { pool, chunk -> tuple("pooled___${chunk.baseName}", chunk) }
+                    .combine( ch_pooled_locs.map { it[1] } )
+            }
+            else {
+                ch_kofam_pooled_in = ch_pooled_hmm_in
+            }
+            HMM_SEARCH_KOFAM_POOLED( ch_kofam_pooled_in, params.kofam_e_value, DB_channel_SETUP.out.ch_kofam_db, ch_kofam_list, true, kofam_name )
+            ch_kofam_pooled_csv = HMM_SEARCH_KOFAM_POOLED.out.formatted_hits
+                .map { id, csv -> csv }
+                .collectFile(name: 'pooled_kofam_hits.csv', keepHeader: true)
+                .map { csv -> tuple('pooled', csv) }
+            SPLIT_POOLED_KOFAM( ch_kofam_pooled_csv, kofam_name )
             ch_kofam_formatted = SPLIT_POOLED_KOFAM.out.per_genome_hits
                 .flatten()
                 .map { csv -> tuple(csv.name.toString().split('___')[0], csv) }
