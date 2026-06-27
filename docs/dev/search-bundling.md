@@ -16,10 +16,14 @@ only WITHIN a genome (megahit `k141_*` scaffolds collide across bins). Fixed by
 `PREFIX_GENES_FOR_POOL` (`<genome>___<id>` on faa headers + gene-locs), stripped in
 `SPLIT_POOLED_HITS`.
 
+The entire mmseqs annotation for a cohort is now O(#DBs) tasks. For merops+viral+methyl
+at 56 bins: per-genome = 336 tasks (56 index + 168 search + 112 SQL) → pooled = **9**
+(1 index + 3 search + 3 split + 2 SQL). At 4621 bins: ~27,700 → 9.
+
 ## Remaining
-- **SQL descriptions still run per-genome** (SQL_MEROPS/SQL_VIRAL = 56 tasks each) — they
-  consume the per-genome split CSVs. Cheap (sqlite lookups, no DB load) but poolable by
-  running SQL on the pooled CSV before the split (next easy win).
+- **SQL descriptions are now pooled too** (validated 2026-06-27): SQL runs once on the
+  pooled hits, then split (query_ids keep the `<genome>___` prefix through sql_add_descriptions).
+  SQL_MEROPS/SQL_VIRAL drop from 56 → 1 each. methyl has no SQL.
 - **kegg/pfam/camper/canthyd/uniref** mmseqs searches not yet pooled (guarded against
   `--pool_searches`); same ~6-line pattern, not in the eluring DB config so unvalidated here.
 - **HMM searches** (kofam/sulfur/etc.) and the single-task COMBINE — Phase-2/3.
