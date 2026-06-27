@@ -34,6 +34,8 @@ include { MMSEQS_SEARCH as MMSEQS_SEARCH_PFAM           } from "../../modules/lo
 include { ADD_SQL_DESCRIPTIONS as SQL_UNIREF            } from "../../modules/local/annotate/add_sql_descriptions.nf"
 include { ADD_SQL_DESCRIPTIONS as SQL_VIRAL             } from "../../modules/local/annotate/add_sql_descriptions.nf"
 include { ADD_SQL_DESCRIPTIONS as SQL_MEROPS            } from "../../modules/local/annotate/add_sql_descriptions.nf"
+include { ADD_SQL_DESCRIPTIONS as SQL_MEROPS_POOLED     } from "../../modules/local/annotate/add_sql_descriptions.nf"
+include { ADD_SQL_DESCRIPTIONS as SQL_VIRAL_POOLED      } from "../../modules/local/annotate/add_sql_descriptions.nf"
 include { ADD_SQL_DESCRIPTIONS as SQL_KEGG              } from "../../modules/local/annotate/add_sql_descriptions.nf"
 include { ADD_SQL_DESCRIPTIONS as SQL_PFAM              } from "../../modules/local/annotate/add_sql_descriptions.nf"
 
@@ -351,21 +353,22 @@ workflow DB_SEARCH {
     if (use_merops) {
         if (params.pool_searches) {
             // Pooled query DB (ch_pooled_search_in) is built once in the MMSEQS_INDEX
-            // block above. Search MEROPS against it and split hits back per genome.
+            // block above. Search + add SQL descriptions on the POOLED hits in single
+            // tasks, then split per genome (query-ids keep their <genome>___ prefix
+            // through SQL, so the split-back still works).
             MMSEQS_SEARCH_MEROPS_POOLED( ch_pooled_search_in, DB_channel_SETUP.out.ch_merops_db, params.bit_score_threshold, params.rbh_bit_score_threshold, default_sheet, merops_name )
-            SPLIT_POOLED_MEROPS( MMSEQS_SEARCH_MEROPS_POOLED.out.mmseqs_search_formatted_out, merops_name )
-            ch_merops_unformatted = SPLIT_POOLED_MEROPS.out.per_genome_hits
+            SQL_MEROPS_POOLED( MMSEQS_SEARCH_MEROPS_POOLED.out.mmseqs_search_formatted_out, merops_name, ch_sql_descriptions_db )
+            SPLIT_POOLED_MEROPS( SQL_MEROPS_POOLED.out.sql_formatted_hits, merops_name )
+            ch_merops_formatted = SPLIT_POOLED_MEROPS.out.per_genome_hits
                 .flatten()
                 .map { csv -> tuple(csv.name.toString().split('___')[0], csv) }
         }
         else {
             ch_combined_query_locs_merops = ch_mmseqs_query.join(ch_gene_locs)
             MMSEQS_SEARCH_MEROPS( ch_combined_query_locs_merops, DB_channel_SETUP.out.ch_merops_db, params.bit_score_threshold, params.rbh_bit_score_threshold, default_sheet, merops_name )
-            ch_merops_unformatted = MMSEQS_SEARCH_MEROPS.out.mmseqs_search_formatted_out
+            SQL_MEROPS( MMSEQS_SEARCH_MEROPS.out.mmseqs_search_formatted_out, merops_name, ch_sql_descriptions_db )
+            ch_merops_formatted = SQL_MEROPS.out.sql_formatted_hits
         }
-
-        SQL_MEROPS(ch_merops_unformatted, merops_name, ch_sql_descriptions_db)
-        ch_merops_formatted = SQL_MEROPS.out.sql_formatted_hits
 
         formattedOutputchannels = formattedOutputchannels.mix(ch_merops_formatted)
     }
@@ -439,20 +442,20 @@ workflow DB_SEARCH {
     // Viral annotation
     if (params.use_viral) {
         if (params.pool_searches) {
+            // search + SQL on pooled hits in single tasks, then split per genome
             MMSEQS_SEARCH_VIRAL_POOLED( ch_pooled_search_in, DB_channel_SETUP.out.ch_viral_db, params.bit_score_threshold, params.rbh_bit_score_threshold, default_sheet, viral_name )
-            SPLIT_POOLED_VIRAL( MMSEQS_SEARCH_VIRAL_POOLED.out.mmseqs_search_formatted_out, viral_name )
-            ch_viral_unformatted = SPLIT_POOLED_VIRAL.out.per_genome_hits
+            SQL_VIRAL_POOLED( MMSEQS_SEARCH_VIRAL_POOLED.out.mmseqs_search_formatted_out, viral_name, ch_sql_descriptions_db )
+            SPLIT_POOLED_VIRAL( SQL_VIRAL_POOLED.out.sql_formatted_hits, viral_name )
+            ch_viral_formatted = SPLIT_POOLED_VIRAL.out.per_genome_hits
                 .flatten()
                 .map { csv -> tuple(csv.name.toString().split('___')[0], csv) }
         }
         else {
             ch_combined_query_locs_viral = ch_mmseqs_query.join(ch_gene_locs)
             MMSEQS_SEARCH_VIRAL( ch_combined_query_locs_viral, DB_channel_SETUP.out.ch_viral_db, params.bit_score_threshold,  params.rbh_bit_score_threshold,default_sheet, viral_name )
-            ch_viral_unformatted = MMSEQS_SEARCH_VIRAL.out.mmseqs_search_formatted_out
+            SQL_VIRAL( MMSEQS_SEARCH_VIRAL.out.mmseqs_search_formatted_out, viral_name, ch_sql_descriptions_db )
+            ch_viral_formatted = SQL_VIRAL.out.sql_formatted_hits
         }
-
-        SQL_VIRAL(ch_viral_unformatted, viral_name, ch_sql_descriptions_db)
-        ch_viral_formatted = SQL_VIRAL.out.sql_formatted_hits
 
         formattedOutputchannels = formattedOutputchannels.mix(ch_viral_formatted)
     }
