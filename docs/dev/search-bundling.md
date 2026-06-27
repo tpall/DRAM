@@ -1,7 +1,28 @@
 # Search bundling & workflow-cache efficiency — design note
 
-Status: **planning / Phase-1 scaffolding** on branch `perf/search-bundling` (off `dev`).
-Author: investigation 2026-06-27.
+Status: **Phase-2 implemented + validated for mmseqs (merops/viral/methyl)** on branch
+`perf/search-bundling` (off `dev`). Author: investigation 2026-06-27.
+
+## Validated result (extraves, 56 bins, 2026-06-27)
+`--pool_searches` for merops + viral + methyl is **byte-identical** to the per-genome
+path (136,240 rows; every merops/viral/methyl column matches, order-insensitive). The
+per-genome `MMSEQS_INDEX` is fully collapsed (0 tasks under pooling). mmseqs
+index+search+split tasks: **224 → 7** for 3 DBs at 56 bins; on a 4621-bin cohort the
+per-genome path would be ~18k mmseqs tasks vs ~7. Earlier single-DB run measured
+6.1 → 1.5 CPU-h and ~12× less aggregate queue+exec time.
+
+Key bug the validation caught: Prodigal gene ids are `{scaffold}_{gene}` and unique
+only WITHIN a genome (megahit `k141_*` scaffolds collide across bins). Fixed by
+`PREFIX_GENES_FOR_POOL` (`<genome>___<id>` on faa headers + gene-locs), stripped in
+`SPLIT_POOLED_HITS`.
+
+## Remaining
+- **SQL descriptions still run per-genome** (SQL_MEROPS/SQL_VIRAL = 56 tasks each) — they
+  consume the per-genome split CSVs. Cheap (sqlite lookups, no DB load) but poolable by
+  running SQL on the pooled CSV before the split (next easy win).
+- **kegg/pfam/camper/canthyd/uniref** mmseqs searches not yet pooled (guarded against
+  `--pool_searches`); same ~6-line pattern, not in the eluring DB config so unvalidated here.
+- **HMM searches** (kofam/sulfur/etc.) and the single-task COMBINE — Phase-2/3.
 
 ## Problem
 
