@@ -12,9 +12,12 @@ include { GENE_LOCS                                     } from "../../modules/lo
 include { COMBINE_ANNOTATIONS                           } from "../../modules/local/annotate/combine_annotations.nf"
 
 include { MMSEQS_INDEX                                  } from "../../modules/local/annotate/mmseqs_index.nf"
+include { MMSEQS_INDEX as MMSEQS_INDEX_POOLED           } from "../../modules/local/annotate/mmseqs_index.nf"
 
 // NextFlow only process with the same name in the same workflow, so either alias it or include it a different workflow
 include { MMSEQS_SEARCH as MMSEQS_SEARCH_MEROPS         } from "../../modules/local/annotate/mmseqs_search.nf"
+include { MMSEQS_SEARCH as MMSEQS_SEARCH_MEROPS_POOLED  } from "../../modules/local/annotate/mmseqs_search.nf"
+include { SPLIT_POOLED_HITS as SPLIT_POOLED_MEROPS      } from "../../modules/local/annotate/split_pooled_hits.nf"
 include { MMSEQS_SEARCH as MMSEQS_SEARCH_VIRAL          } from "../../modules/local/annotate/mmseqs_search.nf"
 include { MMSEQS_SEARCH as MMSEQS_SEARCH_CAMPER         } from "../../modules/local/annotate/mmseqs_search.nf"
 include { MMSEQS_SEARCH as MMSEQS_SEARCH_METHYL         } from "../../modules/local/annotate/mmseqs_search.nf"
@@ -304,9 +307,37 @@ workflow DB_SEARCH {
     }
     // MEROPS annotation
     if (use_merops) {
-        ch_combined_query_locs_merops = ch_mmseqs_query.join(ch_gene_locs)
-        MMSEQS_SEARCH_MEROPS( ch_combined_query_locs_merops, DB_channel_SETUP.out.ch_merops_db, params.bit_score_threshold, params.rbh_bit_score_threshold, default_sheet, merops_name )
-        ch_merops_unformatted = MMSEQS_SEARCH_MEROPS.out.mmseqs_search_formatted_out
+        if (params.pool_searches) {
+            // Phase-2 search bundling (docs/dev/search-bundling.md): pool every
+            // genome's called proteins, index + search MEROPS ONCE, then split the
+            // pooled hits back per genome by query-id. Hits are bit-score filtered
+            // (DB-size independent), so per-genome results are identical; final order
+            // is irrelevant because COMBINE_ANNOTATIONS sorts.
+            ch_pooled_merops_faa = ch_called_proteins
+                .map { it[1] }
+                .collectFile(name: 'pooled_genes.faa')
+                .map { faa -> tuple('pooled', faa) }
+            MMSEQS_INDEX_POOLED( ch_pooled_merops_faa )
+
+            ch_pooled_merops_locs = ch_gene_locs
+                .map { it[1] }
+                .collectFile(name: 'pooled_gene_locs.tsv', keepHeader: true)
+                .map { locs -> tuple('pooled', locs) }
+
+            ch_pooled_merops_in = MMSEQS_INDEX_POOLED.out.mmseqs_index_out.join(ch_pooled_merops_locs)
+            MMSEQS_SEARCH_MEROPS_POOLED( ch_pooled_merops_in, DB_channel_SETUP.out.ch_merops_db, params.bit_score_threshold, params.rbh_bit_score_threshold, default_sheet, merops_name )
+
+            ch_merops_all_locs = ch_gene_locs.map { it[1] }.collect()
+            SPLIT_POOLED_MEROPS( MMSEQS_SEARCH_MEROPS_POOLED.out.mmseqs_search_formatted_out, ch_merops_all_locs, merops_name )
+            ch_merops_unformatted = SPLIT_POOLED_MEROPS.out.per_genome_hits
+                .flatten()
+                .map { csv -> tuple(csv.name.toString().split('___')[0], csv) }
+        }
+        else {
+            ch_combined_query_locs_merops = ch_mmseqs_query.join(ch_gene_locs)
+            MMSEQS_SEARCH_MEROPS( ch_combined_query_locs_merops, DB_channel_SETUP.out.ch_merops_db, params.bit_score_threshold, params.rbh_bit_score_threshold, default_sheet, merops_name )
+            ch_merops_unformatted = MMSEQS_SEARCH_MEROPS.out.mmseqs_search_formatted_out
+        }
 
         SQL_MEROPS(ch_merops_unformatted, merops_name, ch_sql_descriptions_db)
         ch_merops_formatted = SQL_MEROPS.out.sql_formatted_hits
