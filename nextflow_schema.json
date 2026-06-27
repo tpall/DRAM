@@ -548,9 +548,8 @@
                     "hidden": true
                 },
                 "pool_searches": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Pool called genes across genomes and search each DB once per chunk, splitting hits back by query-id prefix. Scaffolding (perf/search-bundling) — not wired yet; see docs/dev/search-bundling.md.",
+                    "type": ["boolean", "string"], "pattern": "^(true|false)$",
+                    "description": "Pool called genes across genomes and search a DB once, splitting hits back by query-id prefix. MEROPS implemented on perf/search-bundling; see docs/dev/search-bundling.md.",
                     "hidden": true
                 },
                 "search_chunk_size": {
