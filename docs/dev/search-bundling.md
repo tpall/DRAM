@@ -16,7 +16,8 @@ only WITHIN a genome (megahit `k141_*` scaffolds collide across bins). Fixed by
 `PREFIX_GENES_FOR_POOL` (`<genome>___<id>` on faa headers + gene-locs), stripped in
 `SPLIT_POOLED_HITS`.
 
-The entire mmseqs annotation for a cohort is now O(#DBs) tasks. For merops+viral+methyl
+The entire mmseqs annotation for a cohort is now #DBs tasks (one per database, not per
+genome). For merops+viral+methyl
 at 56 bins: per-genome = 336 tasks (56 index + 168 search + 112 SQL) → pooled = **9**
 (1 index + 3 search + 3 split + 2 SQL). At 4621 bins: ~27,700 → 9.
 
@@ -49,7 +50,7 @@ at 56 bins: per-genome = 336 tasks (56 index + 168 search + 112 SQL) → pooled 
 - **Single-task COMBINE — assessed, DEPRIORITISED.** `combine_annotations.py` is per-gene
   keyed by `[query_id, input_fasta]` (no cross-genome compute beyond the already-non-deterministic
   column order), so it parallelises cleanly — but only if **batched** (K genomes/batch → B
-  batch-combines → one concat; per-genome would re-create the O(#bins) task explosion). It runs
+  batch-combines → one concat; per-genome would re-create the per-bin task explosion). It runs
   once, downstream, and is far cheaper than the (now-pooled) search fan-out, so the value is
   **robustness/memory** (de-risking the single big-memory COMBINE on ~4000-bin cohorts), not
   speed. Deferred: not worth the channel-batching + multi-dir staging + concat complexity vs the
