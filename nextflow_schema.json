@@ -553,10 +553,9 @@
                     "hidden": true
                 },
                 "search_chunk_size": {
-                    "type": ["integer", "string"],
-                    "pattern": "^[0-9]+$",
+                    "type": "integer",
                     "default": 0,
-                    "description": "Genes per pooled HMM search chunk when pool_searches is set (e.g. 20000). 0 = single pooled search task. Splits the pooled FASTA for parallel hmmsearch; see docs/dev/search-bundling.md.",
+                    "description": "Genes per pooled search chunk when pool_searches is set (e.g. 100000). 0 = one chunk per genome (current behaviour). Scaffolding — not wired yet.",
                     "hidden": true
                 },
                 "camper_e_value": {
