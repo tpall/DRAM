@@ -35,6 +35,17 @@ at 56 bins: per-genome = 336 tasks (56 index + 168 search + 112 SQL) → pooled 
   (3823 dropped / 3799 gained). Byte-identical HMM pooling is impossible without pinning
   `hmmsearch -Z/--domZ`, which would also change per-genome output. DECISION: keep HMM
   per-genome; `--pool_searches` is mmseqs-only. Fixed-`-Z` pooling is a future science decision.
+  - **UPDATE (branch `perf/hmm-pool-bitscore`): the bit-score-prefilter fix WORKS.** Replacing
+    `hmmsearch -E 1e-5` with a Z-independent bit-score prefilter `-T 10 --domT 10` (floor below
+    kofam's lowest profile threshold, 15.07) makes **pooled HMM byte-identical to per-genome**: on
+    extraves, per-genome(`-T`) vs pooled-chunked(`-T`) = IDENTICAL for all 5 DBs (141270 rows; kofam
+    fanned to 8 chunks). Costs are small: drift vs the `-E` baseline is **+63 kofam calls (~0.08%)** —
+    the hits `-E 1e-5` was silently dropping (bit-score is the intended KOfam filter, so arguably a
+    latent bug) — and the final annotations are the **same size** (34M, no bloat; only the transient
+    domtblout grows). So full-annotation pooling (mmseqs + HMM) is achievable + correct. Not in
+    PR #10 because `-T` changes HMM output vs `-E` → a deliberate pipeline-wide decision (re-run
+    finished cohorts for consistency), not mid-campaign. `-Z`/`--domZ` does NOT work: one pooled
+    `-Z` can't match the variable per-genome sizes.
 - **Single-task COMBINE — assessed, DEPRIORITISED.** `combine_annotations.py` is per-gene
   keyed by `[query_id, input_fasta]` (no cross-genome compute beyond the already-non-deterministic
   column order), so it parallelises cleanly — but only if **batched** (K genomes/batch → B
