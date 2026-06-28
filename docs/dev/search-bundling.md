@@ -35,7 +35,15 @@ at 56 bins: per-genome = 336 tasks (56 index + 168 search + 112 SQL) → pooled 
   (3823 dropped / 3799 gained). Byte-identical HMM pooling is impossible without pinning
   `hmmsearch -Z/--domZ`, which would also change per-genome output. DECISION: keep HMM
   per-genome; `--pool_searches` is mmseqs-only. Fixed-`-Z` pooling is a future science decision.
-- **Single-task COMBINE** — still a candidate (tree/partial merge).
+- **Single-task COMBINE — assessed, DEPRIORITISED.** `combine_annotations.py` is per-gene
+  keyed by `[query_id, input_fasta]` (no cross-genome compute beyond the already-non-deterministic
+  column order), so it parallelises cleanly — but only if **batched** (K genomes/batch → B
+  batch-combines → one concat; per-genome would re-create the O(#bins) task explosion). It runs
+  once, downstream, and is far cheaper than the (now-pooled) search fan-out, so the value is
+  **robustness/memory** (de-risking the single big-memory COMBINE on ~4000-bin cohorts), not
+  speed. Deferred: not worth the channel-batching + multi-dir staging + concat complexity vs the
+  payoff. If COMBINE ever OOMs/times out on the largest cohorts, the cheap fix is bumping its
+  memory/time request; batching is the structural fix.
 
 ## Problem
 
