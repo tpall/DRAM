@@ -208,9 +208,10 @@ workflow DB_SEARCH {
             // hmm_parser filters on per-profile bit-score thresholds (DB-size independent);
             // hmmsearch's -E ${kofam_e_value} prefilter scales with the searched DB size —
             // validated on extraves.
-            if (params.search_chunk_size && params.search_chunk_size > 0) {
+            def search_chunk_n = (params.search_chunk_size as Integer)   // CLI passes a string
+            if (search_chunk_n > 0) {
                 ch_kofam_pooled_in = ch_pooled_faa
-                    .splitFasta(by: params.search_chunk_size, file: true, elem: 1)
+                    .splitFasta(by: search_chunk_n, file: true, elem: 1)
                     .map { pool, chunk -> tuple("pooled___${chunk.baseName}", chunk) }
                     .combine( ch_pooled_locs.map { it[1] } )
             }
