@@ -26,7 +26,16 @@ at 56 bins: per-genome = 336 tasks (56 index + 168 search + 112 SQL) → pooled 
   SQL_MEROPS/SQL_VIRAL drop from 56 → 1 each. methyl has no SQL.
 - **kegg/pfam/camper/canthyd/uniref** mmseqs searches not yet pooled (guarded against
   `--pool_searches`); same ~6-line pattern, not in the eluring DB config so unvalidated here.
-- **HMM searches** (kofam/sulfur/etc.) and the single-task COMBINE — Phase-2/3.
+- **HMM searches (kofam/sulfur): investigated, NOT pooled — reverted.** Implemented
+  prefix-pool-split + pooled-then-chunked kofam (`search_chunk_size`); chunking restored
+  parallelism (8 chunks, 1h50m vs an 8h timeout for one pooled task). BUT on extraves pooled
+  kofam was **not byte-identical**: hmm_parser filters on per-profile bit-score thresholds
+  (Z-independent), yet `hmmsearch`'s `-E` prefilter + domain reporting scale with the searched
+  DB size (Z). Pooling changes Z, so **~5% of kofam calls churn** at the significance boundary
+  (3823 dropped / 3799 gained). Byte-identical HMM pooling is impossible without pinning
+  `hmmsearch -Z/--domZ`, which would also change per-genome output. DECISION: keep HMM
+  per-genome; `--pool_searches` is mmseqs-only. Fixed-`-Z` pooling is a future science decision.
+- **Single-task COMBINE** — still a candidate (tree/partial merge).
 
 ## Problem
 
