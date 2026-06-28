@@ -12,10 +12,11 @@ done
 # Bounded so a genuine, repeatable failure doesn't loop forever.
 attempt=1
 max_attempts=5
-until nextflow run tpall/DRAM -r dev \
-  --input_fasta /gpfs/helios/home/taavi74/Projects/newborn2/results/binrefine/input_fasta \
-  --outdir /gpfs/helios/home/taavi74/Projects/newborn2/results/DRAM/call-annotate-distill \
-  --threads 8 --annotate --summarize --qc \
+until nextflow run tpall/DRAM -r eluring-prod-dev \
+  -c ~/dram_dbs.config \
+  --input_fasta /gpfs/helios/home/taavi74/Projects/newborn/results/binrefine/input_fasta \
+  --outdir /gpfs/helios/home/taavi74/Projects/newborn/results/DRAM/call-annotate-distill \
+  --threads 8 --call --annotate --summarize --qc \
   --use_kofam --use_dbcan --use_merops --use_viral --use_methyl --use_sulfur \
   -profile singularity --slurm --partition main \
   -with-report -with-trace -with-timeline \

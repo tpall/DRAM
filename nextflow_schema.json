@@ -547,6 +547,17 @@
                     "description": "Split called-protein FASTA into chunks of this many records and run VOG hmmsearch per chunk in parallel. 0 disables chunking.",
                     "hidden": true
                 },
+                "pool_searches": {
+                    "type": ["boolean", "string"], "pattern": "^(true|false)$",
+                    "description": "Pool called genes across genomes and search a DB once, splitting hits back by query-id prefix. MEROPS implemented on perf/search-bundling; see docs/dev/search-bundling.md.",
+                    "hidden": true
+                },
+                "search_chunk_size": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Genes per pooled search chunk when pool_searches is set (e.g. 100000). 0 = one chunk per genome (current behaviour). Scaffolding — not wired yet.",
+                    "hidden": true
+                },
                 "camper_e_value": {
                     "type": "string",
                     "default": "1e-05",
