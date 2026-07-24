@@ -22,8 +22,14 @@ process HMM_SEARCH {
     def ec_flag = ec_from_info ? "--ec_from_info" : ""
 
     """
+    # Bit-score prefilter (-T/--domT) instead of the e-value prefilter (-E): bit scores
+    # are independent of search-space size (Z), so a pooled multi-genome search reports
+    # the SAME hits as per-genome (hmm_parser then applies the per-profile bit-score
+    # thresholds). Floor 10 sits below the lowest kofam threshold (15.07) so nothing a
+    # real threshold would keep is pre-cut. NB: this is the perf/hmm-pool-bitscore
+    # experiment — it changes results vs the -E ${e_value} prefilter.
     hmmsearch \\
-    -E ${e_value} \\
+    -T 10 --domT 10 \\
     --domtblout ${input_fasta}_hmmsearch.out \\
     --cpu ${task.cpus} \\
     ${database_loc}/*.hmm \\
