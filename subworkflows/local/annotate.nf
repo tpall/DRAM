@@ -28,6 +28,7 @@ workflow ANNOTATE {
     use_uniref
     use_metals
     use_vog
+    use_vfdb
 
     main:
     n_fastas = 0
@@ -104,7 +105,8 @@ workflow ANNOTATE {
             use_merops,
             use_uniref,
             use_metals,
-            use_vog
+            use_vog,
+            use_vfdb
             )
         ch_combined_annotations = DB_SEARCH.out.ch_combined_annotations
     }

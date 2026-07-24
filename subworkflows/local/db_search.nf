@@ -30,6 +30,7 @@ include { MMSEQS_SEARCH as MMSEQS_SEARCH_CANTHYD        } from "../../modules/lo
 include { MMSEQS_SEARCH as MMSEQS_SEARCH_KEGG           } from "../../modules/local/annotate/mmseqs_search.nf"
 include { MMSEQS_SEARCH as MMSEQS_SEARCH_UNIREF         } from "../../modules/local/annotate/mmseqs_search.nf"
 include { MMSEQS_SEARCH as MMSEQS_SEARCH_PFAM           } from "../../modules/local/annotate/mmseqs_search.nf"
+include { MMSEQS_SEARCH as MMSEQS_SEARCH_VFDB           } from "../../modules/local/annotate/mmseqs_search.nf"
 
 include { ADD_SQL_DESCRIPTIONS as SQL_UNIREF            } from "../../modules/local/annotate/add_sql_descriptions.nf"
 include { ADD_SQL_DESCRIPTIONS as SQL_VIRAL             } from "../../modules/local/annotate/add_sql_descriptions.nf"
@@ -86,6 +87,7 @@ workflow DB_SEARCH {
     use_uniref
     use_metals
     use_vog
+    use_vfdb
 
     main:
 
@@ -102,7 +104,8 @@ workflow DB_SEARCH {
         use_merops,
         use_uniref,
         use_metals,
-        use_vog
+        use_vog,
+        use_vfdb
 
     )
 
@@ -127,6 +130,7 @@ workflow DB_SEARCH {
     pfam_name = "pfam"
     vogdb_name = "vogdb"
     metals_name = "metals"
+    vfdb_name = "vfdb"
 
 
     if (!call) {
@@ -158,8 +162,8 @@ workflow DB_SEARCH {
     // across bins); SPLIT_POOLED_HITS strips the prefix per genome. Pooling currently
     // covers the mmseqs merops/viral/methyl and hmm kofam/sulfur searches; the other
     // mmseqs DBs still use the per-genome index (skipped under pooling), so guard them.
-    if (params.pool_searches && (use_kegg || use_pfam || use_camper || use_canthyd || use_uniref)) {
-        error("--pool_searches currently supports the merops/viral/methyl mmseqs searches and the kofam/sulfur hmm searches only. Disable kegg/pfam/camper/canthyd/uniref or drop --pool_searches.")
+    if (params.pool_searches && (use_kegg || use_pfam || use_camper || use_canthyd || use_uniref || use_vfdb)) {
+        error("--pool_searches currently supports the merops/viral/methyl mmseqs searches and the kofam/sulfur hmm searches only. Disable kegg/pfam/camper/canthyd/uniref/vfdb or drop --pool_searches.")
     }
     if (params.pool_searches) {
         PREFIX_GENES_FOR_POOL( ch_called_proteins.join(ch_gene_locs) )
@@ -313,6 +317,15 @@ workflow DB_SEARCH {
         ch_camper_mmseqs_formatted = MMSEQS_SEARCH_CAMPER.out.mmseqs_search_formatted_out
 
         formattedOutputchannels = formattedOutputchannels.mix(ch_camper_mmseqs_formatted)
+    }
+    // VFDB (virulence-factor) annotation — mmseqs + list-file descriptions (CAMPER-style,
+    // no SQL). Gene-presence only; not wired into --pool_searches (guarded above) so it
+    // runs per-genome. db_name "vfdb" -> vfdb_id column via mmseqs_add_descriptions.py.
+    if (use_vfdb) {
+        ch_combined_query_locs_vfdb = ch_mmseqs_query.join(ch_gene_locs)
+        MMSEQS_SEARCH_VFDB( ch_combined_query_locs_vfdb, DB_channel_SETUP.out.ch_vfdb_db, params.bit_score_threshold, params.rbh_bit_score_threshold, DB_channel_SETUP.out.ch_vfdb_list, vfdb_name )
+        ch_vfdb_formatted = MMSEQS_SEARCH_VFDB.out.mmseqs_search_formatted_out
+        formattedOutputchannels = formattedOutputchannels.mix(ch_vfdb_formatted)
     }
     // FeGenie annotation
     if (use_fegenie) {
@@ -533,6 +546,7 @@ workflow DB_channel_SETUP {
     use_uniref
     use_metals
     use_vog
+    use_vfdb
 
 
     main:
@@ -557,6 +571,8 @@ workflow DB_channel_SETUP {
     ch_canthyd_mmseqs_list = Channel.empty()
     ch_vogdb_db = Channel.empty()
     ch_viral_db = Channel.empty()
+    ch_vfdb_db = Channel.empty()
+    ch_vfdb_list = Channel.empty()
 
     if (use_kegg) {
         ch_kegg_db = file(params.kegg_db).exists() ? file(params.kegg_db) : error("Error: If using --annotate, you must supply prebuilt databases. KEGG database file not found at ${params.kegg_db}")
@@ -631,6 +647,12 @@ workflow DB_channel_SETUP {
         index_mmseqs = true
     }
 
+    if (use_vfdb) {
+        ch_vfdb_db = file(params.vfdb_db).exists() ? file(params.vfdb_db) : error("Error: If using --annotate, you must supply prebuilt databases. VFDB database file not found at ${params.vfdb_db}")
+        index_mmseqs = true
+        ch_vfdb_list = file(params.vfdb_list)
+    }
+
     emit:
     ch_kegg_db
     ch_kofam_db
@@ -651,5 +673,7 @@ workflow DB_channel_SETUP {
     ch_canthyd_mmseqs_list
     ch_vogdb_db
     ch_viral_db
+    ch_vfdb_db
+    ch_vfdb_list
     index_mmseqs
 } 

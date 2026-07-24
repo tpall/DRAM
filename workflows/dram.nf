@@ -95,6 +95,7 @@ workflow DRAM {
     use_uniref = params.use_uniref
     use_metals = params.use_metals
     use_vog = params.use_vog
+    use_vfdb = params.use_vfdb
 
     if (params.anno_dbs != "") {
         anno_dbs = params.anno_dbs.tokenize(',').collect { it -> it.trim().toLowerCase() }
@@ -113,6 +114,7 @@ workflow DRAM {
         use_uniref = getDBFlag(anno_dbs, 'uniref', value_for_all)
         use_metals = getDBFlag(anno_dbs, 'metals', value_for_all)
         use_vog = getDBFlag(anno_dbs, 'vog', value_for_all)
+        use_vfdb = getDBFlag(anno_dbs, 'vfdb', value_for_all)
     }
 
     // DRAM-v viral mode needs Pfam annotations: the T flag in amg_flags is
@@ -261,7 +263,8 @@ workflow DRAM {
             use_merops,
             use_uniref,
             use_metals,
-            use_vog
+            use_vog,
+            use_vfdb
         )
 
 

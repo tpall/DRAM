@@ -195,6 +195,10 @@
                     "type": ["boolean", "string"], "pattern": "^(true|false)$",
                     "description": "Use the MEROPS database for annotation."
                 },
+                "use_vfdb": {
+                    "type": ["boolean", "string"], "pattern": "^(true|false)$",
+                    "description": "Use the VFDB (virulence factor) database for annotation (gene presence only)."
+                },
                 "use_methyl": {
                     "type": ["boolean", "string"], "pattern": "^(true|false)$",
                     "description": "Use the Methyl database for annotation."
@@ -463,6 +467,16 @@
                 "camper_mmseqs_list": {
                     "type": "string",
                     "default": "${launchDir}/databases/camper/mmseqs/camper_scores.tsv",
+                    "hidden": true
+                },
+                "vfdb_db": {
+                    "type": "string",
+                    "default": "${launchDir}/databases/vfdb/mmseqs/",
+                    "hidden": true
+                },
+                "vfdb_list": {
+                    "type": "string",
+                    "default": "${launchDir}/databases/vfdb/vfdb_descriptions.tsv",
                     "hidden": true
                 },
                 "canthyd_hmm_db": {
