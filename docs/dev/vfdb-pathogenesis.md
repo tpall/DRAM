@@ -2,6 +2,29 @@
 
 Dev note for the VFDB integration. Place at `docs/dev/vfdb-pathogenesis.md`.
 
+## Status & decision (2026-07-24)
+
+**Shipped as opt-in raw annotation only — no distillate.** Touch-point 1 (the mmseqs
+search) is implemented and smoke-validated on branch `feat/vfdb-pathogenesis`:
+`--use_vfdb` / `--anno_dbs vfdb` adds `vfdb_id` / `vfdb_bitScore` / `vfdb_description`
+to `raw-annotations.tsv`. Touch-points 2 (distill) and 3 (`--add_db`) are **NOT built**,
+and the rule_parser `ID_EXPR_DICT` `vfdb_id` one-liner is **not committed** — it is only
+needed if the distillate is ever built (rule_parser is the upstream
+`WrightonLabCSU/Rule-Parser` submodule, so that would require a fork + re-pointing).
+
+**Why no distillate:** a stricter-threshold pass on real data (3 extraves gut MAGs vs
+VFDB setA, 4759 proteins) showed VFDB-presence is mostly *remote homology*, not
+virulence. Of 846 hits, median amino-acid identity was **32%**; at a real presence bar
+(bit ≥ 120 & ≥ 80% identity) only **10 (~1%)** survived, and those were
+enzyme/metabolic/immune-modulation — **zero exotoxins, adherence or invasion factors**.
+The dominant VF classes were Nutritional/Metabolic and Immune modulation. So on
+commensal gut cohorts a "pathogenesis" distillate would over-report virulence.
+
+**If revived** (e.g. for pathogen-suspect isolates): gate on **%identity + coverage** (a
+code change — the mmseqs module filters bit score only), keep it opt-in, label the column
+"VF homolog present", and re-add the `ID_EXPR_DICT` line via a Rule-Parser fork. The rest
+of this note is the original three-touch-point design, kept for that scenario.
+
 ## Scope
 
 Add **virulence-factor gene presence** to DRAM2 via VFDB, as an mmseqs2 search
