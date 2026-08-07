@@ -12,9 +12,17 @@ include { GENE_LOCS                                     } from "../../modules/lo
 include { COMBINE_ANNOTATIONS                           } from "../../modules/local/annotate/combine_annotations.nf"
 
 include { MMSEQS_INDEX                                  } from "../../modules/local/annotate/mmseqs_index.nf"
+include { MMSEQS_INDEX as MMSEQS_INDEX_POOLED           } from "../../modules/local/annotate/mmseqs_index.nf"
 
 // NextFlow only process with the same name in the same workflow, so either alias it or include it a different workflow
 include { MMSEQS_SEARCH as MMSEQS_SEARCH_MEROPS         } from "../../modules/local/annotate/mmseqs_search.nf"
+include { MMSEQS_SEARCH as MMSEQS_SEARCH_MEROPS_POOLED  } from "../../modules/local/annotate/mmseqs_search.nf"
+include { SPLIT_POOLED_HITS as SPLIT_POOLED_MEROPS      } from "../../modules/local/annotate/split_pooled_hits.nf"
+include { MMSEQS_SEARCH as MMSEQS_SEARCH_VIRAL_POOLED   } from "../../modules/local/annotate/mmseqs_search.nf"
+include { SPLIT_POOLED_HITS as SPLIT_POOLED_VIRAL       } from "../../modules/local/annotate/split_pooled_hits.nf"
+include { MMSEQS_SEARCH as MMSEQS_SEARCH_METHYL_POOLED  } from "../../modules/local/annotate/mmseqs_search.nf"
+include { SPLIT_POOLED_HITS as SPLIT_POOLED_METHYL      } from "../../modules/local/annotate/split_pooled_hits.nf"
+include { PREFIX_GENES_FOR_POOL                         } from "../../modules/local/annotate/prefix_genes_for_pool.nf"
 include { MMSEQS_SEARCH as MMSEQS_SEARCH_VIRAL          } from "../../modules/local/annotate/mmseqs_search.nf"
 include { MMSEQS_SEARCH as MMSEQS_SEARCH_CAMPER         } from "../../modules/local/annotate/mmseqs_search.nf"
 include { MMSEQS_SEARCH as MMSEQS_SEARCH_METHYL         } from "../../modules/local/annotate/mmseqs_search.nf"
@@ -26,6 +34,8 @@ include { MMSEQS_SEARCH as MMSEQS_SEARCH_PFAM           } from "../../modules/lo
 include { ADD_SQL_DESCRIPTIONS as SQL_UNIREF            } from "../../modules/local/annotate/add_sql_descriptions.nf"
 include { ADD_SQL_DESCRIPTIONS as SQL_VIRAL             } from "../../modules/local/annotate/add_sql_descriptions.nf"
 include { ADD_SQL_DESCRIPTIONS as SQL_MEROPS            } from "../../modules/local/annotate/add_sql_descriptions.nf"
+include { ADD_SQL_DESCRIPTIONS as SQL_MEROPS_POOLED     } from "../../modules/local/annotate/add_sql_descriptions.nf"
+include { ADD_SQL_DESCRIPTIONS as SQL_VIRAL_POOLED      } from "../../modules/local/annotate/add_sql_descriptions.nf"
 include { ADD_SQL_DESCRIPTIONS as SQL_KEGG              } from "../../modules/local/annotate/add_sql_descriptions.nf"
 include { ADD_SQL_DESCRIPTIONS as SQL_PFAM              } from "../../modules/local/annotate/add_sql_descriptions.nf"
 
@@ -36,6 +46,10 @@ include { HMM_SEARCH as HMM_SEARCH_CANTHYD              } from "../../modules/lo
 include { HMM_SEARCH as HMM_SEARCH_SULFUR               } from "../../modules/local/annotate/hmmsearch.nf"
 include { HMM_SEARCH as HMM_SEARCH_FEGENIE              } from "../../modules/local/annotate/hmmsearch.nf"
 include { HMM_SEARCH as HMM_SEARCH_METALS               } from "../../modules/local/annotate/hmmsearch.nf"
+include { HMM_SEARCH as HMM_SEARCH_KOFAM_POOLED         } from "../../modules/local/annotate/hmmsearch.nf"
+include { HMM_SEARCH as HMM_SEARCH_SULFUR_POOLED        } from "../../modules/local/annotate/hmmsearch.nf"
+include { SPLIT_POOLED_HITS as SPLIT_POOLED_KOFAM       } from "../../modules/local/annotate/split_pooled_hits.nf"
+include { SPLIT_POOLED_HITS as SPLIT_POOLED_SULFUR      } from "../../modules/local/annotate/split_pooled_hits.nf"
 
 include { CONCAT_HMM_HITS as CONCAT_HMM_HITS_KOFAM      } from "../../modules/local/annotate/concat_hmm_hits.nf"
 include { CONCAT_HMM_HITS as CONCAT_HMM_HITS_VOG        } from "../../modules/local/annotate/concat_hmm_hits.nf"
@@ -137,11 +151,40 @@ workflow DB_SEARCH {
     def formattedOutputchannels = channel.of()
     def dbcanOutputChannels = channel.of()
 
+    // Phase-2 search bundling (docs/dev/search-bundling.md): build the pooled,
+    // genome-prefixed protein FASTA + gene-locs ONCE when --pool_searches — shared by
+    // every pooled mmseqs AND hmm search. Gene ids are made globally unique by
+    // PREFIX_GENES_FOR_POOL (<genome>___<id>; megahit k141_* scaffold names collide
+    // across bins); SPLIT_POOLED_HITS strips the prefix per genome. Pooling currently
+    // covers the mmseqs merops/viral/methyl and hmm kofam/sulfur searches; the other
+    // mmseqs DBs still use the per-genome index (skipped under pooling), so guard them.
+    if (params.pool_searches && (use_kegg || use_pfam || use_camper || use_canthyd || use_uniref)) {
+        error("--pool_searches currently supports the merops/viral/methyl mmseqs searches and the kofam/sulfur hmm searches only. Disable kegg/pfam/camper/canthyd/uniref or drop --pool_searches.")
+    }
+    if (params.pool_searches) {
+        PREFIX_GENES_FOR_POOL( ch_called_proteins.join(ch_gene_locs) )
+        ch_pooled_faa = PREFIX_GENES_FOR_POOL.out.faa
+            .collectFile(name: 'pooled_genes.faa')
+            .map { faa -> tuple('pooled', faa) }
+        ch_pooled_locs = PREFIX_GENES_FOR_POOL.out.locs
+            .collectFile(name: 'pooled_gene_locs.tsv', keepHeader: true)
+            .map { locs -> tuple('pooled', locs) }
+        ch_pooled_hmm_in = ch_pooled_faa.join(ch_pooled_locs)   // [ 'pooled', faa, gene_locs ]
+    }
+
     // Here we will create mmseqs2 index files for each of the inputs if we are going to do a mmseqs2 database
     if (DB_channel_SETUP.out.index_mmseqs) {
-        // Use MMSEQS2 to index each called genes protein file
-        MMSEQS_INDEX( ch_called_proteins )
-        ch_mmseqs_query = MMSEQS_INDEX.out.mmseqs_index_out
+        if (params.pool_searches) {
+            // index the pooled proteins once; reuse for every pooled mmseqs search.
+            // ch_pooled_search_in = [ 'pooled', index_db, gene_locs ].
+            MMSEQS_INDEX_POOLED( ch_pooled_faa )
+            ch_pooled_search_in = MMSEQS_INDEX_POOLED.out.mmseqs_index_out.join(ch_pooled_locs)
+        }
+        else {
+            // Use MMSEQS2 to index each called genes protein file
+            MMSEQS_INDEX( ch_called_proteins )
+            ch_mmseqs_query = MMSEQS_INDEX.out.mmseqs_index_out
+        }
     }
 
     // KEGG annotation
@@ -157,7 +200,35 @@ workflow DB_SEARCH {
     }
     // KOFAM annotation
     if (use_kofam) {
-        if (params.kofam_chunk_size && params.kofam_chunk_size > 0) {
+        if (params.pool_searches) {
+            // Pooled HMM. One hmmsearch over the pooled prefixed proteins is a single
+            // un-parallelised task; with search_chunk_size > 0 the pooled FASTA is split
+            // into chunks searched in parallel (restoring fan-out while keeping the task
+            // count O(#chunks), not O(#bins)), concatenated, then split per genome.
+            // hmm_parser filters on per-profile bit-score thresholds (DB-size independent);
+            // hmmsearch's -E ${kofam_e_value} prefilter scales with the searched DB size —
+            // validated on extraves.
+            def search_chunk_n = (params.search_chunk_size as Integer)   // CLI passes a string
+            if (search_chunk_n > 0) {
+                ch_kofam_pooled_in = ch_pooled_faa
+                    .splitFasta(by: search_chunk_n, file: true, elem: 1)
+                    .map { pool, chunk -> tuple("pooled___${chunk.baseName}", chunk) }
+                    .combine( ch_pooled_locs.map { it[1] } )
+            }
+            else {
+                ch_kofam_pooled_in = ch_pooled_hmm_in
+            }
+            HMM_SEARCH_KOFAM_POOLED( ch_kofam_pooled_in, params.kofam_e_value, DB_channel_SETUP.out.ch_kofam_db, ch_kofam_list, true, kofam_name )
+            ch_kofam_pooled_csv = HMM_SEARCH_KOFAM_POOLED.out.formatted_hits
+                .map { id, csv -> csv }
+                .collectFile(name: 'pooled_kofam_hits.csv', keepHeader: true)
+                .map { csv -> tuple('pooled', csv) }
+            SPLIT_POOLED_KOFAM( ch_kofam_pooled_csv, kofam_name )
+            ch_kofam_formatted = SPLIT_POOLED_KOFAM.out.per_genome_hits
+                .flatten()
+                .map { csv -> tuple(csv.name.toString().split('___')[0], csv) }
+        }
+        else if (params.kofam_chunk_size && params.kofam_chunk_size > 0) {
             ch_kofam_chunks = ch_called_proteins
                 .splitFasta(by: params.kofam_chunk_size, file: true, elem: 1)
                 .combine(ch_gene_locs, by: 0)
@@ -259,9 +330,18 @@ workflow DB_SEARCH {
     }
     // Methyl annotation
     if (use_methyl) {
-        ch_combined_query_locs_methyl = ch_mmseqs_query.join(ch_gene_locs)
-        MMSEQS_SEARCH_METHYL( ch_combined_query_locs_methyl, DB_channel_SETUP.out.ch_methyl_db, params.bit_score_threshold, params.rbh_bit_score_threshold, default_sheet, methyl_name )
-        ch_methyl_mmseqs_formatted = MMSEQS_SEARCH_METHYL.out.mmseqs_search_formatted_out
+        if (params.pool_searches) {
+            MMSEQS_SEARCH_METHYL_POOLED( ch_pooled_search_in, DB_channel_SETUP.out.ch_methyl_db, params.bit_score_threshold, params.rbh_bit_score_threshold, default_sheet, methyl_name )
+            SPLIT_POOLED_METHYL( MMSEQS_SEARCH_METHYL_POOLED.out.mmseqs_search_formatted_out, methyl_name )
+            ch_methyl_mmseqs_formatted = SPLIT_POOLED_METHYL.out.per_genome_hits
+                .flatten()
+                .map { csv -> tuple(csv.name.toString().split('___')[0], csv) }
+        }
+        else {
+            ch_combined_query_locs_methyl = ch_mmseqs_query.join(ch_gene_locs)
+            MMSEQS_SEARCH_METHYL( ch_combined_query_locs_methyl, DB_channel_SETUP.out.ch_methyl_db, params.bit_score_threshold, params.rbh_bit_score_threshold, default_sheet, methyl_name )
+            ch_methyl_mmseqs_formatted = MMSEQS_SEARCH_METHYL.out.mmseqs_search_formatted_out
+        }
 
         formattedOutputchannels = formattedOutputchannels.mix(ch_methyl_mmseqs_formatted)
     }
@@ -290,26 +370,47 @@ workflow DB_SEARCH {
     }
     // Sulfur annotation
     if (use_sulfur) {
-        ch_combined_proteins_locs = ch_called_proteins.join(ch_gene_locs)
-        HMM_SEARCH_SULFUR ( 
-            ch_combined_proteins_locs,  
-            params.sulfur_e_value, 
-            DB_channel_SETUP.out.ch_sulfur_db,
-            default_sheet,
-            false,
-            sulfur_name
-            )
-        ch_sulfur_formatted = HMM_SEARCH_SULFUR.out.formatted_hits
+        if (params.pool_searches) {
+            HMM_SEARCH_SULFUR_POOLED( ch_pooled_hmm_in, params.sulfur_e_value, DB_channel_SETUP.out.ch_sulfur_db, default_sheet, false, sulfur_name )
+            SPLIT_POOLED_SULFUR( HMM_SEARCH_SULFUR_POOLED.out.formatted_hits, sulfur_name )
+            ch_sulfur_formatted = SPLIT_POOLED_SULFUR.out.per_genome_hits
+                .flatten()
+                .map { csv -> tuple(csv.name.toString().split('___')[0], csv) }
+        }
+        else {
+            ch_combined_proteins_locs = ch_called_proteins.join(ch_gene_locs)
+            HMM_SEARCH_SULFUR (
+                ch_combined_proteins_locs,
+                params.sulfur_e_value,
+                DB_channel_SETUP.out.ch_sulfur_db,
+                default_sheet,
+                false,
+                sulfur_name
+                )
+            ch_sulfur_formatted = HMM_SEARCH_SULFUR.out.formatted_hits
+        }
         formattedOutputchannels = formattedOutputchannels.mix(ch_sulfur_formatted)
     }
     // MEROPS annotation
     if (use_merops) {
-        ch_combined_query_locs_merops = ch_mmseqs_query.join(ch_gene_locs)
-        MMSEQS_SEARCH_MEROPS( ch_combined_query_locs_merops, DB_channel_SETUP.out.ch_merops_db, params.bit_score_threshold, params.rbh_bit_score_threshold, default_sheet, merops_name )
-        ch_merops_unformatted = MMSEQS_SEARCH_MEROPS.out.mmseqs_search_formatted_out
-
-        SQL_MEROPS(ch_merops_unformatted, merops_name, ch_sql_descriptions_db)
-        ch_merops_formatted = SQL_MEROPS.out.sql_formatted_hits
+        if (params.pool_searches) {
+            // Pooled query DB (ch_pooled_search_in) is built once in the MMSEQS_INDEX
+            // block above. Search + add SQL descriptions on the POOLED hits in single
+            // tasks, then split per genome (query-ids keep their <genome>___ prefix
+            // through SQL, so the split-back still works).
+            MMSEQS_SEARCH_MEROPS_POOLED( ch_pooled_search_in, DB_channel_SETUP.out.ch_merops_db, params.bit_score_threshold, params.rbh_bit_score_threshold, default_sheet, merops_name )
+            SQL_MEROPS_POOLED( MMSEQS_SEARCH_MEROPS_POOLED.out.mmseqs_search_formatted_out, merops_name, ch_sql_descriptions_db )
+            SPLIT_POOLED_MEROPS( SQL_MEROPS_POOLED.out.sql_formatted_hits, merops_name )
+            ch_merops_formatted = SPLIT_POOLED_MEROPS.out.per_genome_hits
+                .flatten()
+                .map { csv -> tuple(csv.name.toString().split('___')[0], csv) }
+        }
+        else {
+            ch_combined_query_locs_merops = ch_mmseqs_query.join(ch_gene_locs)
+            MMSEQS_SEARCH_MEROPS( ch_combined_query_locs_merops, DB_channel_SETUP.out.ch_merops_db, params.bit_score_threshold, params.rbh_bit_score_threshold, default_sheet, merops_name )
+            SQL_MEROPS( MMSEQS_SEARCH_MEROPS.out.mmseqs_search_formatted_out, merops_name, ch_sql_descriptions_db )
+            ch_merops_formatted = SQL_MEROPS.out.sql_formatted_hits
+        }
 
         formattedOutputchannels = formattedOutputchannels.mix(ch_merops_formatted)
     }
@@ -382,12 +483,21 @@ workflow DB_SEARCH {
     }
     // Viral annotation
     if (params.use_viral) {
-        ch_combined_query_locs_viral = ch_mmseqs_query.join(ch_gene_locs)
-        MMSEQS_SEARCH_VIRAL( ch_combined_query_locs_viral, DB_channel_SETUP.out.ch_viral_db, params.bit_score_threshold,  params.rbh_bit_score_threshold,default_sheet, viral_name )
-        ch_viral_unformatted = MMSEQS_SEARCH_VIRAL.out.mmseqs_search_formatted_out
-
-        SQL_VIRAL(ch_viral_unformatted, viral_name, ch_sql_descriptions_db)
-        ch_viral_formatted = SQL_VIRAL.out.sql_formatted_hits
+        if (params.pool_searches) {
+            // search + SQL on pooled hits in single tasks, then split per genome
+            MMSEQS_SEARCH_VIRAL_POOLED( ch_pooled_search_in, DB_channel_SETUP.out.ch_viral_db, params.bit_score_threshold, params.rbh_bit_score_threshold, default_sheet, viral_name )
+            SQL_VIRAL_POOLED( MMSEQS_SEARCH_VIRAL_POOLED.out.mmseqs_search_formatted_out, viral_name, ch_sql_descriptions_db )
+            SPLIT_POOLED_VIRAL( SQL_VIRAL_POOLED.out.sql_formatted_hits, viral_name )
+            ch_viral_formatted = SPLIT_POOLED_VIRAL.out.per_genome_hits
+                .flatten()
+                .map { csv -> tuple(csv.name.toString().split('___')[0], csv) }
+        }
+        else {
+            ch_combined_query_locs_viral = ch_mmseqs_query.join(ch_gene_locs)
+            MMSEQS_SEARCH_VIRAL( ch_combined_query_locs_viral, DB_channel_SETUP.out.ch_viral_db, params.bit_score_threshold,  params.rbh_bit_score_threshold,default_sheet, viral_name )
+            SQL_VIRAL( MMSEQS_SEARCH_VIRAL.out.mmseqs_search_formatted_out, viral_name, ch_sql_descriptions_db )
+            ch_viral_formatted = SQL_VIRAL.out.sql_formatted_hits
+        }
 
         formattedOutputchannels = formattedOutputchannels.mix(ch_viral_formatted)
     }
