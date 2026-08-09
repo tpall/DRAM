@@ -1,0 +1,38 @@
+{
+  "upload_type": "software",
+  "title": "tpall/DRAM: DRAM2-v, a DRAM-v (viral mode) reimplementation for the DRAM2 Nextflow workflow",
+  "description": "<p>A fork of <a href=\"https://github.com/WrightonLabCSU/DRAM\">WrightonLabCSU/DRAM</a> that adds viral-mode (DRAM-v) annotation to the DRAM2 Nextflow workflow, referred to as DRAM2-v. Viral mode was not available in the upstream Nextflow workflow at the time of this work.</p><p>This snapshot archives the exact revision used for the auxiliary-metabolic-gene analysis of a vOTU catalogue in the accompanying manuscript. It corresponds to commit 0c828513fa17ebd0857e83ab6a372b768f41d84c of this fork, plus archival metadata files only; no code differs.</p><p>Additions over upstream include: per-gene DRAM-v <code>amg_flags</code> and <code>is_transposon</code>; the v1 <code>auxiliary_score</code>; an adapter allowing that score to be computed from geNomad output rather than requiring VirSorter; an <code>essential_viral_function</code> annotation and corresponding N flag following Martin et al. 2025 (doi:10.1038/s41564-025-02095-4); and an <code>--amg_only</code> distillation mode. Flag semantics are ported from DRAM v1 <code>mag_annotator/annotate_vgfs.py</code>.</p><p>Note on annotation settings: this revision uses a Z-independent bit-score prefilter (<code>-T 10 --domT 10</code>) for HMM searches in place of the upstream e-value prefilter, which was required to make pooled multi-genome HMM searches produce results identical to per-genome searches. This applies to every HMM database. For KOfam the downstream parser then applies per-profile bit-score thresholds, but the VOGdb annotation file carries no threshold column, so VOGdb hits are retained at the bit-score floor of 10 with no further significance filtering. Users comparing against upstream defaults should account for this.</p><p>DRAM itself is the work of the Wrighton Lab and its contributors; see the upstream repository and Shaffer et al. 2020 (doi:10.1093/nar/gkaa621). This archive covers the fork's modifications only and is redistributed under the same GPL-3.0 license.</p>",
+  "creators": [
+    {
+      "name": "Päll, Taavi",
+      "orcid": "0000-0001-7606-675X"
+    }
+  ],
+  "license": "GPL-3.0",
+  "access_right": "open",
+  "keywords": [
+    "metagenomics",
+    "virome",
+    "bacteriophage",
+    "auxiliary metabolic genes",
+    "AMG",
+    "genome annotation",
+    "Nextflow",
+    "DRAM",
+    "DRAM-v"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/WrightonLabCSU/DRAM",
+      "relation": "isDerivedFrom",
+      "scheme": "url",
+      "resource_type": "software"
+    },
+    {
+      "identifier": "10.1093/nar/gkaa621",
+      "relation": "cites",
+      "scheme": "doi",
+      "resource_type": "publication-article"
+    }
+  ]
+}
