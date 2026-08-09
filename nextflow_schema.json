@@ -205,6 +205,16 @@
                 "use_vog": {
                     "type": "boolean"
                 },
+                "use_dramv": {
+                    "type": "boolean",
+                    "description": "Run DRAM-v viral mode: add amg_flags and is_transposon columns to the combined annotations.",
+                    "help_text": "Computes the DRAM v1 AMG flags (M/K/E/V/A/P/T/F/B) plus an informational N flag marking genes with essential viral function. Auto-enables --use_pfam (required for is_transposon and the T flag) and --use_vog (required for the V flag)."
+                },
+                "amg_length_from_end": {
+                    "type": "integer",
+                    "default": 5000,
+                    "description": "Window in bp from contig ends used to set the F flag in DRAM-v amg_flags."
+                },
                 "use_viral": {
                     "type": "boolean",
                     "hidden": true

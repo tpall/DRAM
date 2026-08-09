@@ -3,6 +3,7 @@ include { RENAME_PROTEINS        } from "../../modules/local/rename/rename_prote
 include { CALL                   } from "../../subworkflows/local/call.nf"
 include { QC                     } from "../../subworkflows/local/qc.nf"
 include { DB_SEARCH              } from "../../subworkflows/local/db_search.nf"
+include { DRAMV_FLAGS            } from "../../modules/local/dramv/dramv_flags.nf"
 include { GENE_LOCS              } from "../../modules/local/annotate/gene_locs.nf"
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -176,6 +177,19 @@ workflow ANNOTATE {
         ch_rrna_collected = QC.out.ch_rrna_collected
         ch_trna_collected = QC.out.ch_trna_collected
         ch_combined_annotations = QC.out.ch_final_annots
+    }
+
+    // DRAM-v: add amg_flags + is_transposon to the combined annotations.
+    if (params.use_dramv) {
+        // use_dramv force-enables use_vog in the workflow, so vog_list is always
+        // available here; the V flag reads VOGdb functional categories from it.
+        ch_vog_list = channel.fromPath(params.vog_list, checkIfExists: true)
+        DRAMV_FLAGS(
+            ch_combined_annotations,
+            ch_fasta.map { it -> it[1] }.collect(),
+            ch_vog_list
+        )
+        ch_combined_annotations = DRAMV_FLAGS.out.combined_annotations_with_flags
     }
 
     emit:
