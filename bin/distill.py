@@ -41,9 +41,23 @@ def make_genome_summary(annotations, genome_summary_frame, logger, groupby_colum
           .alias(RULES)
     )
 
+    # A gene is identified by its genome AND its query_id. query_id alone is not
+    # unique across genomes: per-sample assemblers reuse contig names (MEGAHIT
+    # k141_*), so the same "k141_100_1" occurs in many bins. Keying on query_id
+    # alone merged unrelated genes in the rule evaluation and credited every hit
+    # to every genome sharing the id, inflating counts and making them depend on
+    # which other genomes were in the run.
+    gene_key = "_gene_key"
+    annotations = annotations.with_columns(
+        pl.concat_str(
+            [pl.col(groupby_column).cast(pl.Utf8), pl.col("query_id").cast(pl.Utf8)],
+            separator="\x1f",
+        ).alias(gene_key)
+    )
+
     rule_hits = evaluate_rules_on_anno(
         annotations=annotations,
-        sample_col="query_id",
+        sample_col=gene_key,
         rules=summary.lazy(),
         label_col=COL_GENE_ID,
         parent_col=None,
@@ -52,15 +66,16 @@ def make_genome_summary(annotations, genome_summary_frame, logger, groupby_colum
 
     # Cast both join keys to Utf8 — when annotations is empty (e.g. --amg_only
     # + --max_auxiliary_score combined to drop every row) polars infers
-    # rule_hits.query_id as null-type, which doesn't join against str.
+    # rule_hits.<key> as null-type, which doesn't join against str.
     counts = (
-        rule_hits.with_columns(pl.col("query_id").cast(pl.Utf8))
+        rule_hits.with_columns(pl.col(gene_key).cast(pl.Utf8))
         .join(
             annotations
-                .select([pl.col("query_id").cast(pl.Utf8), pl.col(groupby_column)]),
-            on="query_id",
+                .select([pl.col(gene_key).cast(pl.Utf8), pl.col(groupby_column)])
+                .unique(),
+            on=gene_key,
         )
-        .drop("query_id")
+        .drop(gene_key)
         .group_by(groupby_column)
         .agg(pl.exclude(groupby_column).sum())
     )
