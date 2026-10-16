@@ -85,37 +85,47 @@ def convert_bit_scores_to_numeric(df):
             df[col] = pd.to_numeric(df[col], errors='coerce')
     return df
 
+def input_fasta_from_genes_path(gene_faa) -> str:
+    return Path(gene_faa).stem.split("_called_genes")[0]
+
+
+# Genes are keyed on (input_fasta, query_id): query_id alone is not unique across
+# genomes, because per-sample assemblers reuse contig names (MEGAHIT k141_*). Keyed
+# on query_id alone, a later genome overwrote an earlier genome's entry, and the
+# earlier genome's rows came out of the merge with no scaffold or coordinates.
 def count_motifs(gene_faa, motif="(C..CH)", genes_faa_dict=None):
     if genes_faa_dict is None:
         genes_faa_dict = dict()
+    input_fasta_name = input_fasta_from_genes_path(gene_faa)
     for seq in read_sequence(gene_faa, format="fasta"):
-        if seq.metadata["id"] not in genes_faa_dict:
-            genes_faa_dict[seq.metadata["id"]] = {}
-        genes_faa_dict[seq.metadata["id"]]["heme_regulatory_motif_count"] = len(list(seq.find_with_regex(motif)))
+        gene = genes_faa_dict.setdefault((input_fasta_name, seq.metadata["id"]), {})
+        gene["heme_regulatory_motif_count"] = len(list(seq.find_with_regex(motif)))
     return genes_faa_dict
 
 def set_gene_data(gene_faa, genes_faa_dict=None):
     if genes_faa_dict is None:
         genes_faa_dict = dict()
+    input_fasta_name = input_fasta_from_genes_path(gene_faa)
     for seq in read_sequence(gene_faa, format="fasta"):
-        if seq.metadata["id"] not in genes_faa_dict:
-            genes_faa_dict[seq.metadata["id"]] = {}
-        split_label = seq.metadata["id"].split("_")
-        gene_position = split_label[-1]
+        gene_id = seq.metadata["id"]
+        gene = genes_faa_dict.setdefault((input_fasta_name, gene_id), {})
+        gene_position = gene_id.split("_")[-1]
         start_position, end_position, strandedness = seq.metadata["description"].split("#")[1:4]
-
-        input_fasta_name = Path(gene_faa).stem.split('_called_genes')[0]
-        genes_faa_dict[seq.metadata["id"]][FASTA_COLUMN] = input_fasta_name
-        genes_faa_dict[seq.metadata["id"]]["scaffold"] = (
-            seq.metadata["id"]
-            .removeprefix(genes_faa_dict[seq.metadata["id"]][FASTA_COLUMN])
+        gene["scaffold"] = (
+            gene_id
+            .removeprefix(input_fasta_name)
             .removeprefix("_")
             .removesuffix(f"_{gene_position}"))
-        genes_faa_dict[seq.metadata["id"]]["gene_number"] = int(gene_position)
-        genes_faa_dict[seq.metadata["id"]]["start_position"] = int(start_position)
-        genes_faa_dict[seq.metadata["id"]]["stop_position"] = int(end_position)
-        genes_faa_dict[seq.metadata["id"]]["strandedness"] = int(strandedness)
+        gene["gene_number"] = int(gene_position)
+        gene["start_position"] = int(start_position)
+        gene["stop_position"] = int(end_position)
+        gene["strandedness"] = int(strandedness)
     return genes_faa_dict
+
+def genes_dict_to_frame(genes_faa_dict):
+    return pd.DataFrame(
+        [{FASTA_COLUMN: fasta, "query_id": gene_id, **fields}
+         for (fasta, gene_id), fields in genes_faa_dict.items()])
 
 def organize_columns(df, special_columns=None):
     if special_columns is None:
@@ -158,10 +168,9 @@ def combine_annotations(annotations_dir, genes_dir, dbcan_dir, output, threads):
         genes_faa_dict = dict()
         for gene_path in genes_faa:
             gene_path = str(gene_path)
-            genes_faa_dict
             count_motifs(gene_path, "(C..CH)", genes_faa_dict=genes_faa_dict)
             set_gene_data(gene_path, genes_faa_dict)
-        df = pd.DataFrame.from_dict(genes_faa_dict, orient='index').reset_index().rename(columns={'index': 'query_id'})
+        df = genes_dict_to_frame(genes_faa_dict)
         combined_data = combined_data.drop(columns=df.columns.difference(["query_id", "scaffold", FASTA_COLUMN]), errors='ignore')
         combined_data = pd.merge(combined_data, df, how="outer", on=["query_id", FASTA_COLUMN])
 
